@@ -12,6 +12,7 @@
     "check": "npm run build && npm test",
     "scan": "tsx src/cli/scan.ts",
     "evaluate": "tsx src/cli/evaluate.ts",
+    "forecast:crypto": "tsx src/cli/forecast-crypto.ts",
     "history:archive": "tsx src/cli/archive-history.ts",
     "record:snapshot": "tsx src/cli/record-snapshot.ts",
     "replay": "tsx src/cli/replay.ts",
