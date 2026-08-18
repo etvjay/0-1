@@ -1,6 +1,5 @@
 import { executeBoundedBuy } from "../execution/live-buy.js";
-import { OpenAIOpinionProvider } from "../forecast/research/openai-opinion.js";
-import { TavilySearchProvider } from "../forecast/research/tavily.js";
+import { createResearchProviders } from "../forecast/research/providers.js";
 import { huntOpportunities } from "../hunt/orchestrator.js";
 import { sha256Json } from "../history/io.js";
 import {
@@ -57,20 +56,18 @@ const pendingFromResult = (result: any, accountValue: number, marketExposure: nu
   };
 };
 
-const tryPending = async (pending: PendingTradeState) => {
-  return executeBoundedBuy({
-    marketId: pending.marketId,
-    outcomeIndex: pending.outcomeIndex,
-    shares: pending.shares,
-    probability: pending.probability,
-    confidence: pending.confidence,
-    accountValue: pending.accountValue,
-    marketExposure: pending.marketExposure,
-    beliefCreatedAtMs: pending.beliefCreatedAtMs,
-    beliefExpiresAtMs: pending.beliefExpiresAtMs,
-    method: pending.method,
-  });
-};
+const tryPending = async (pending: PendingTradeState) => executeBoundedBuy({
+  marketId: pending.marketId,
+  outcomeIndex: pending.outcomeIndex,
+  shares: pending.shares,
+  probability: pending.probability,
+  confidence: pending.confidence,
+  accountValue: pending.accountValue,
+  marketExposure: pending.marketExposure,
+  beliefCreatedAtMs: pending.beliefCreatedAtMs,
+  beliefExpiresAtMs: pending.beliefExpiresAtMs,
+  method: pending.method,
+});
 
 export async function runCompeteCycle(): Promise<CompeteCycleResult> {
   const statePath = process.env.ZERO_ONE_RUNTIME_STATE ?? "data/runtime/runtime-state.json";
@@ -129,9 +126,10 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
     }
   }
 
+  const providers = createResearchProviders();
   const report = await huntOpportunities(
-    new TavilySearchProvider(),
-    new OpenAIOpinionProvider(),
+    providers.search,
+    providers.opinion,
     {
       marketLimit: numberEnv("ZERO_ONE_HUNT_MARKET_LIMIT", 100),
       researchBudget: numberEnv("ZERO_ONE_HUNT_RESEARCH_BUDGET", 8),
@@ -159,7 +157,7 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
 
       state.pendingTrades[key] = pending;
       result.enqueued += 1;
-      await saveRuntimeState(statePath, state); // durable before execution: at-least-once handoff
+      await saveRuntimeState(statePath, state);
 
       pending.attempts += 1;
       pending.lastAttemptAtMs = Date.now();
