@@ -13,6 +13,7 @@
     "scan": "tsx src/cli/scan.ts",
     "evaluate": "tsx src/cli/evaluate.ts",
     "route:market": "tsx src/cli/route-market.ts",
+    "research:market": "tsx src/cli/research-market.ts",
     "forecast:evidence": "tsx src/cli/forecast-evidence.ts",
     "forecast:crypto": "tsx src/cli/forecast-crypto.ts",
     "history:archive": "tsx src/cli/archive-history.ts",
