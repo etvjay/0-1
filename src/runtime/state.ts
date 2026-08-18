@@ -7,6 +7,24 @@ export interface RecentTradeState {
   transactionHash: string;
 }
 
+export interface PendingTradeState {
+  id: string;
+  marketId: `0x${string}`;
+  outcomeIndex: number;
+  shares: number;
+  probability: number;
+  confidence: number;
+  accountValue: number;
+  marketExposure: number;
+  beliefCreatedAtMs: number;
+  beliefExpiresAtMs: number;
+  method: string;
+  createdAtMs: number;
+  attempts: number;
+  lastAttemptAtMs: number | null;
+  lastError: string | null;
+}
+
 export interface RuntimeState {
   schemaVersion: "0-1.runtime-state.v1";
   updatedAtMs: number;
@@ -18,6 +36,7 @@ export interface RuntimeState {
   lastTradeAtMs: number | null;
   lastTransactionHash: string | null;
   recentTrades: Record<string, RecentTradeState>;
+  pendingTrades: Record<string, PendingTradeState>;
 }
 
 export const defaultRuntimeState = (): RuntimeState => ({
@@ -31,12 +50,15 @@ export const defaultRuntimeState = (): RuntimeState => ({
   lastTradeAtMs: null,
   lastTransactionHash: null,
   recentTrades: {},
+  pendingTrades: {},
 });
 
 export async function loadRuntimeState(path: string): Promise<RuntimeState> {
   try {
     const parsed = await readJson<RuntimeState>(path);
     if (parsed.schemaVersion !== "0-1.runtime-state.v1") throw new Error("Unsupported runtime state schema");
+    parsed.recentTrades ??= {};
+    parsed.pendingTrades ??= {};
     return parsed;
   } catch (error) {
     const nodeError = error as NodeJS.ErrnoException;
@@ -52,28 +74,18 @@ export async function saveRuntimeState(path: string, state: RuntimeState): Promi
 
 export const opportunityKey = (marketId: string, outcomeIndex: number): string => `${marketId.toLowerCase()}:${outcomeIndex}`;
 
-export function recentlyTraded(
-  state: RuntimeState,
-  marketId: string,
-  outcomeIndex: number,
-  cooldownMs: number,
-  nowMs = Date.now(),
-): boolean {
+export function recentlyTraded(state: RuntimeState, marketId: string, outcomeIndex: number, cooldownMs: number, nowMs = Date.now()): boolean {
   const prior = state.recentTrades[opportunityKey(marketId, outcomeIndex)];
   return Boolean(prior && nowMs - prior.executedAtMs < cooldownMs);
 }
 
-export function recordTrade(
-  state: RuntimeState,
-  marketId: string,
-  outcomeIndex: number,
-  transactionHash: string,
-  executedAtMs = Date.now(),
-): void {
+export function recordTrade(state: RuntimeState, marketId: string, outcomeIndex: number, transactionHash: string, executedAtMs = Date.now()): void {
   state.totalTrades += 1;
   state.lastTradeAtMs = executedAtMs;
   state.lastTransactionHash = transactionHash;
-  state.recentTrades[opportunityKey(marketId, outcomeIndex)] = { executedAtMs, transactionHash };
+  const key = opportunityKey(marketId, outcomeIndex);
+  state.recentTrades[key] = { executedAtMs, transactionHash };
+  delete state.pendingTrades[key];
 }
 
 export function pruneRecentTrades(state: RuntimeState, retentionMs: number, nowMs = Date.now()): void {
@@ -91,7 +103,6 @@ export async function acquireRuntimeLock(path: string): Promise<() => Promise<vo
   } catch (error) {
     const nodeError = error as NodeJS.ErrnoException;
     if (nodeError.code !== "EEXIST") throw error;
-
     const rawPid = await readFile(path, "utf8").catch(() => "");
     const pid = Number(rawPid.trim());
     if (Number.isInteger(pid) && pid > 0) {
@@ -103,14 +114,10 @@ export async function acquireRuntimeLock(path: string): Promise<() => Promise<vo
         if (probe.code !== "ESRCH") throw probeError;
       }
     }
-
     await unlink(path).catch(() => undefined);
     const handle = await open(path, "wx");
     await handle.writeFile(`${process.pid}\n`, "utf8");
     await handle.close();
   }
-
-  return async () => {
-    await unlink(path).catch(() => undefined);
-  };
+  return async () => { await unlink(path).catch(() => undefined); };
 }
