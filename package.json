@@ -15,6 +15,7 @@
     "route:market": "tsx src/cli/route-market.ts",
     "research:market": "tsx src/cli/research-market.ts",
     "hunt": "tsx src/cli/hunt.ts",
+    "buy:bounded": "tsx src/cli/buy-bounded.ts",
     "forecast:evidence": "tsx src/cli/forecast-evidence.ts",
     "forecast:crypto": "tsx src/cli/forecast-crypto.ts",
     "history:archive": "tsx src/cli/archive-history.ts",
