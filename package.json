@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --test dist/tests/*.test.js",
     "check": "npm run build && npm test",
-    "scan": "tsx src/cli/scan.ts"
+    "scan": "tsx src/cli/scan.ts",
+    "evaluate": "tsx src/cli/evaluate.ts"
   },
   "dependencies": {
     "@gensyn-ai/gensyn-delphi-sdk": "^2.1.0",
