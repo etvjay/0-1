@@ -21,7 +21,7 @@ The second quantity is the one that matters before a buy because shallow LMSR li
 ## Current pipeline
 
 ```text
-Delphi market + public history
+Delphi market + public history + external evidence
         ↓
 MarketSnapshot / ReplayView
         ↓
@@ -79,11 +79,16 @@ npm run history:archive
 npm run record:snapshot -- <market>
 npm run replay -- data/history/latest.json <market> <cutoff-iso-or-ms>
 npm run score:forecasts
+
+# M2: crypto threshold forecaster
+npm run forecast:crypto -- <market> [account-value] [market-exposure]
 ```
 
 `evaluate` persists the forecast and contemporaneous market probability to `data/forecasts.jsonl`. Once that market resolves, `score:forecasts` compares our Brier score and log loss against the market probability observed at forecast time.
 
 `history:archive` reads the official Delphi subgraph, freezes buys, sells, settlements, failures, market metadata, and the subgraph indexing checkpoint into `data/history/latest.json`, and prints a SHA-256 evidence hash.
+
+`forecast:crypto` supports a deliberately narrow class of terminal crypto threshold markets. It parses the market semantics, fetches Binance Futures best bid/ask midpoint and one-minute closes, estimates blended realized volatility, produces a zero-drift GBM terminal probability, persists the forecast, and runs the result through the same Delphi quote ladder and execution-edge policy as manual evaluation.
 
 ## Replay truth boundary
 
@@ -121,6 +126,22 @@ Historical on-chain events establish trades and resolutions. They do **not** by 
 - Brier and log-loss scoring against contemporaneous market probability;
 - tests against settlement/future-data leakage.
 
+### M2a — crypto threshold baseline
+
+- conservative terminal-threshold market parser;
+- BTC/ETH/SOL/BNB Binance Futures mapping;
+- best-bid/best-ask midpoint reference price;
+- one-minute realized-volatility estimator;
+- short/long volatility blend;
+- zero-drift GBM terminal probability baseline;
+- probability/confidence separation;
+- forecast persistence into the M1 ledger;
+- automatic quote/risk evaluation after forecasting;
+- deterministic parser/model tests;
+- explicit refusal of path-dependent hit/touch/ever markets.
+
+This is a baseline forecaster, not yet a claim of profitable alpha. See `docs/CRYPTO_FORECASTER.md`.
+
 ## Not yet claimed
 
 - profitable forecasting alpha;
@@ -128,6 +149,7 @@ Historical on-chain events establish trades and resolutions. They do **not** by 
 - competitor-signal lift;
 - Engram execution memory;
 - Cinch capital containment;
+- sports/news forecasting verticals;
 - multi-source Research/Opportunity Foundry forecasting.
 
 These are promoted only after their experiment gates are green.
@@ -136,7 +158,7 @@ These are promoted only after their experiment gates are green.
 
 Competition semantics are implemented against official Gensyn Delphi reference material. Competition markets use LMSR rather than Delphi's regular DPM mechanism, winning shares redeem 1:1, and quote paths must be consulted before execution because shallow liquidity can materially change average execution price.
 
-See `docs/BUILD_ORDER.md` and `docs/ASSET_IMPORT_MAP.md`.
+See `docs/BUILD_ORDER.md`, `docs/ASSET_IMPORT_MAP.md`, and `docs/CRYPTO_FORECASTER.md`.
 
 ## License
 
