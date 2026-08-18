@@ -73,32 +73,29 @@ export async function executeBoundedBuy(input: LiveBuyInput): Promise<LiveBuyRec
 
   const initialMarket = await delphi.getMarket({ id: input.marketId, pricesAndImpliedProbabilities: true, ...competitionScope });
   if (initialMarket.status !== "open") throw new Error(`Market is ${initialMarket.status}, not open.`);
-  const initialP = initialMarket.spotImpliedProbabilities?.[input.outcomeIndex];
-  if (!Number.isFinite(initialP)) throw new Error("Fresh market probability unavailable.");
+  const initialPValue = initialMarket.spotImpliedProbabilities?.[input.outcomeIndex];
+  if (typeof initialPValue !== "number" || !Number.isFinite(initialPValue)) throw new Error("Fresh market probability unavailable.");
+  const initialP = initialPValue;
 
   const firstQuote = await delphi.quoteBuy({ marketAddress: input.marketId, outcomeIdx: input.outcomeIndex, sharesOut });
   const firstCost = collateralToNumber(firstQuote.tokensIn);
   if (firstCost > maxOrderTst) throw new Error(`Quoted cost ${firstCost.toFixed(6)} TST exceeds ZERO_ONE_MAX_ORDER_TST=${maxOrderTst}.`);
   await delphi.ensureTokenApproval({ marketAddress: input.marketId, minimumAmount: slippageCap(firstQuote.tokensIn, slippageBps) });
 
-  // Approval can take time. Refresh both the market prior and quote immediately before the buy.
   const market = await delphi.getMarket({ id: input.marketId, pricesAndImpliedProbabilities: true, ...competitionScope });
   if (market.status !== "open") throw new Error(`Market changed to ${market.status} before execution.`);
-  const marketProbability = market.spotImpliedProbabilities?.[input.outcomeIndex];
-  if (!Number.isFinite(marketProbability)) throw new Error("Fresh market probability unavailable before execution.");
-  if (Math.abs(marketProbability - initialP) > maxPriorDrift) {
-    throw new Error(`Market probability drifted ${Math.abs(marketProbability - initialP).toFixed(4)} before execution.`);
+  const marketProbabilityValue = market.spotImpliedProbabilities?.[input.outcomeIndex];
+  if (typeof marketProbabilityValue !== "number" || !Number.isFinite(marketProbabilityValue)) {
+    throw new Error("Fresh market probability unavailable before execution.");
   }
+  const marketProbability = marketProbabilityValue;
+  const drift = Math.abs(marketProbability - initialP);
+  if (drift > maxPriorDrift) throw new Error(`Market probability drifted ${drift.toFixed(4)} before execution.`);
 
   const secondQuote = await delphi.quoteBuy({ marketAddress: input.marketId, outcomeIdx: input.outcomeIndex, sharesOut });
   const quotedCost = collateralToNumber(secondQuote.tokensIn);
   if (quotedCost > maxOrderTst) throw new Error(`Fresh quoted cost ${quotedCost.toFixed(6)} TST exceeds ZERO_ONE_MAX_ORDER_TST=${maxOrderTst}.`);
-  const quote: QuoteObservation = {
-    shares: input.shares,
-    tokensIn: quotedCost,
-    averagePrice: quotedCost / input.shares,
-    quotedAt: Date.now(),
-  };
+  const quote: QuoteObservation = { shares: input.shares, tokensIn: quotedCost, averagePrice: quotedCost / input.shares, quotedAt: Date.now() };
   const snapshot: MarketSnapshot = {
     marketId: input.marketId,
     question: market.metadata?.question ?? input.marketId,
@@ -127,12 +124,7 @@ export async function executeBoundedBuy(input: LiveBuyInput): Promise<LiveBuyRec
 
   const maxTokensIn = slippageCap(secondQuote.tokensIn, slippageBps);
   await delphi.ensureTokenApproval({ marketAddress: input.marketId, minimumAmount: maxTokensIn });
-  const { transactionHash } = await delphi.buyShares({
-    marketAddress: input.marketId,
-    outcomeIdx: input.outcomeIndex,
-    sharesOut,
-    maxTokensIn,
-  });
+  const { transactionHash } = await delphi.buyShares({ marketAddress: input.marketId, outcomeIdx: input.outcomeIndex, sharesOut, maxTokensIn });
 
   const base = {
     schemaVersion: "0-1.live-buy.v1" as const,
