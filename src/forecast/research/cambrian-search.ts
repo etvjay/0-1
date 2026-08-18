@@ -18,11 +18,10 @@ const parseTokenMap = (raw: string): CambrianTokenMap => {
   return result;
 };
 
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
 const findConfiguredAsset = (question: string, tokenMap: CambrianTokenMap): [string, CambrianTokenConfig] | null => {
+  const tokens = new Set(question.toUpperCase().split(/[^A-Z0-9$]+/).filter(Boolean));
   for (const [symbol, config] of Object.entries(tokenMap)) {
-    if (new RegExp(`\\b${escapeRegExp(symbol)}\\b`, "i").test(question)) return [symbol, config];
+    if (tokens.has(symbol)) return [symbol, config];
   }
   return null;
 };
