@@ -10,13 +10,17 @@ const hostname = (url: string): string => {
   }
 };
 
+const isCambrian = (result: SearchResultRecord): boolean => result.provider.startsWith("cambrian-");
+
 const reliabilityFor = (result: SearchResultRecord): number => {
+  if (isCambrian(result)) return 0.92;
   if (result.queryIntent === "PRIMARY") return 0.9;
   if (result.queryIntent === "BASE_RATE") return 0.65;
   return 0.72;
 };
 
 const sourceTypeFor = (result: SearchResultRecord): EvidenceItem["sourceType"] => {
+  if (isCambrian(result)) return "DATA_FEED";
   if (result.queryIntent === "PRIMARY") return "PRIMARY";
   return "NEWS";
 };
@@ -42,7 +46,9 @@ export function normalizeSearchEvidence(
       sourceType: sourceTypeFor(result),
       observedAtMs: observed,
       expiresAtMs,
-      supports: "Unassessed search evidence; stance is assigned by the opinion provider.",
+      supports: isCambrian(result)
+        ? "Structured on-chain financial data supplied by Cambrian; interpretation remains model-bounded."
+        : "Unassessed search evidence; stance is assigned by the opinion provider.",
       value: {
         title: result.title,
         content: result.content,
@@ -51,7 +57,7 @@ export function normalizeSearchEvidence(
       },
       stance: "CONTEXT" as const,
       reliability: reliabilityFor(result),
-      independenceGroup: group,
+      independenceGroup: isCambrian(result) ? "cambrian" : group,
       summary: result.title,
     };
     evidence.push({ id: sha256Json(base), ...base });
