@@ -11,7 +11,11 @@
     "test": "node --test dist/tests/*.test.js",
     "check": "npm run build && npm test",
     "scan": "tsx src/cli/scan.ts",
-    "evaluate": "tsx src/cli/evaluate.ts"
+    "evaluate": "tsx src/cli/evaluate.ts",
+    "history:archive": "tsx src/cli/archive-history.ts",
+    "record:snapshot": "tsx src/cli/record-snapshot.ts",
+    "replay": "tsx src/cli/replay.ts",
+    "score:forecasts": "tsx src/cli/score-forecasts.ts"
   },
   "dependencies": {
     "@gensyn-ai/gensyn-delphi-sdk": "^2.1.0",
