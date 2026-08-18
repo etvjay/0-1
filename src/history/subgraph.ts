@@ -2,7 +2,7 @@ import type { SubgraphBuy, SubgraphSell } from "@gensyn-ai/gensyn-delphi-sdk";
 import type { HexAddress } from "../domain/types.js";
 import { competitionId, competitionScope, delphi } from "../delphi/client.js";
 import { dedupeById, normalizeBuy, normalizeFailed, normalizeSell, normalizeSettled, sortTradesChronologically } from "./normalize.js";
-import type { CompetitionHistorySnapshot, MarketCatalogRecord, MarketResolution } from "./types.js";
+import type { CompetitionHistorySnapshot, HistoricalTrade, MarketCatalogRecord, MarketResolution } from "./types.js";
 
 interface RawSettled {
   id: string;
@@ -115,13 +115,13 @@ export async function ingestCompetitionHistory(): Promise<CompetitionHistorySnap
   });
 
   const trades = sortTradesChronologically(dedupeById([
-    ...buys.map(normalizeBuy).filter((value): value is NonNullable<typeof value> => value !== null),
-    ...sells.map(normalizeSell).filter((value): value is NonNullable<typeof value> => value !== null),
+    ...buys.map(normalizeBuy).filter((value): value is HistoricalTrade => value !== null),
+    ...sells.map(normalizeSell).filter((value): value is HistoricalTrade => value !== null),
   ]));
 
   const resolutions: MarketResolution[] = dedupeById([
-    ...settled.map(normalizeSettled).filter((value): value is NonNullable<typeof value> => value !== null),
-    ...failed.map(normalizeFailed).filter((value): value is NonNullable<typeof value> => value !== null),
+    ...settled.map(normalizeSettled).filter((value): value is MarketResolution => value !== null),
+    ...failed.map(normalizeFailed).filter((value): value is MarketResolution => value !== null),
   ]).sort((a, b) => a.timestampMs - b.timestampMs || a.blockNumber - b.blockNumber || a.id.localeCompare(b.id));
 
   return {
