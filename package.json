@@ -16,6 +16,7 @@
     "research:market": "tsx src/cli/research-market.ts",
     "hunt": "tsx src/cli/hunt.ts",
     "compete": "tsx src/cli/compete.ts",
+    "compete:loop": "tsx src/cli/compete-loop.ts",
     "buy:bounded": "tsx src/cli/buy-bounded.ts",
     "forecast:evidence": "tsx src/cli/forecast-evidence.ts",
     "forecast:crypto": "tsx src/cli/forecast-crypto.ts",
