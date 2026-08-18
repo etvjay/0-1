@@ -1,5 +1,4 @@
-import { OpenAIOpinionProvider } from "../forecast/research/openai-opinion.js";
-import { TavilySearchProvider } from "../forecast/research/tavily.js";
+import { createResearchProviders } from "../forecast/research/providers.js";
 import { huntOpportunities } from "../hunt/orchestrator.js";
 import { writeJsonAtomic } from "../history/io.js";
 
@@ -13,9 +12,10 @@ if (![marketLimit, researchBudget, accountValue, marketExposure, maxPriorDrift].
   throw new Error("Hunter numeric configuration contains a non-finite value.");
 }
 
+const providers = createResearchProviders();
 const report = await huntOpportunities(
-  new TavilySearchProvider(),
-  new OpenAIOpinionProvider(),
+  providers.search,
+  providers.opinion,
   {
     marketLimit: Math.max(1, Math.floor(marketLimit)),
     researchBudget: Math.max(0, Math.floor(researchBudget)),
@@ -30,6 +30,8 @@ await writeJsonAtomic(output, report);
 
 console.log(JSON.stringify({
   output,
+  searchProvider: providers.search.name,
+  opinionProvider: providers.opinion.name,
   generatedAtMs: report.generatedAtMs,
   openMarkets: report.openMarkets,
   triageCandidates: report.triageCandidates,
