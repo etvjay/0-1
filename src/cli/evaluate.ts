@@ -3,6 +3,8 @@ import type { MarketBelief, MarketSnapshot, PortfolioState } from "../domain/typ
 import { evaluateTrade } from "../domain/evaluate.js";
 import { competitionScope, delphi } from "../delphi/client.js";
 import { quoteLadder } from "../delphi/quotes.js";
+import { appendJsonl, sha256Json } from "../history/io.js";
+import type { ForecastRecord } from "../history/types.js";
 
 const [, , marketArg, outcomeArg, probabilityArg, confidenceArg, accountValueArg = "100", exposureArg = "0"] = process.argv;
 
@@ -11,7 +13,7 @@ if (!marketArg || outcomeArg === undefined || probabilityArg === undefined || co
   process.exit(1);
 }
 
-const marketId = marketArg as `0x${string}`;
+const marketId = marketArg.toLowerCase() as `0x${string}`;
 const outcomeIndex = Number(outcomeArg);
 const ourProbability = Number(probabilityArg);
 const confidence = Number(confidenceArg);
@@ -57,6 +59,19 @@ const belief: MarketBelief = {
   invalidationConditions: [],
 };
 
+const forecastBase = {
+  schemaVersion: "0-1.forecast.v1" as const,
+  marketId,
+  outcomeIndex,
+  probability: ourProbability,
+  confidence,
+  marketProbability,
+  method: belief.method,
+  createdAtMs: now,
+};
+const forecast: ForecastRecord = { id: sha256Json(forecastBase), ...forecastBase };
+await appendJsonl(process.env.ZERO_ONE_FORECAST_LOG ?? "data/forecasts.jsonl", forecast);
+
 const portfolio: PortfolioState = { accountValue, marketExposure };
 const ladder = await quoteLadder(marketId, outcomeIndex, quoteSizes);
 
@@ -68,6 +83,7 @@ const evaluations = ladder.map((item) => {
 console.log(JSON.stringify({
   snapshot,
   belief,
+  forecast,
   portfolio,
   policy: tradePolicy,
   evaluations,
