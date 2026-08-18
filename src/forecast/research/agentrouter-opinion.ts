@@ -29,8 +29,7 @@ const extractText = (payload: ChatCompletionPayload): string => {
 };
 
 const parseJson = (text: string): StructuredOpinion => {
-  const trimmed = text.trim();
-  const unfenced = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const unfenced = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   return JSON.parse(unfenced) as StructuredOpinion;
 };
 
@@ -53,7 +52,7 @@ export class AgentRouterOpinionProvider implements OpinionProvider {
 
   constructor(
     apiKey = process.env.AGENTROUTER_API_KEY ?? "",
-    model = process.env.ZERO_ONE_AGENTROUTER_MODEL ?? process.env.ZERO_ONE_RESEARCH_MODEL ?? "gpt-5.5",
+    model = process.env.ZERO_ONE_AGENTROUTER_MODEL ?? "",
     baseUrl = process.env.AGENTROUTER_BASE_URL ?? "https://co.agentrouter.org/v1",
   ) {
     if (!apiKey) throw new Error("AGENTROUTER_API_KEY is required when ZERO_ONE_OPINION_PROVIDER=agentrouter");
@@ -88,29 +87,24 @@ export class AgentRouterOpinionProvider implements OpinionProvider {
       "Do not return markdown or a trading decision.",
     ].join(" ");
 
-    const user = JSON.stringify({
-      question: request.routing.resolution.question,
-      outcomes: request.routing.resolution.outcomes,
-      selectedOutcomeIndex: request.outcomeIndex,
-      selectedOutcome: request.outcomeLabel,
-      marketProbability: request.marketProbability,
-      resolution: request.routing.resolution,
-      classification: request.routing.classification,
-      evidence,
-    });
-
     const response = await fetch(this.endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: this.model,
         temperature: 0.2,
         messages: [
           { role: "system", content: system },
-          { role: "user", content: user },
+          { role: "user", content: JSON.stringify({
+            question: request.routing.resolution.question,
+            outcomes: request.routing.resolution.outcomes,
+            selectedOutcomeIndex: request.outcomeIndex,
+            selectedOutcome: request.outcomeLabel,
+            marketProbability: request.marketProbability,
+            resolution: request.routing.resolution,
+            classification: request.routing.classification,
+            evidence,
+          }) },
         ],
       }),
       signal: AbortSignal.timeout(45_000),
