@@ -2,7 +2,7 @@
 
 **Evidence-bounded autonomous trading for the Delphi Agent Competition.**
 
-`0-1` is a competition-native research and execution system for Delphi's LMSR prediction markets. The first milestone is intentionally narrow: read live competition markets, represent an explicit probability belief, quote exact LMSR execution cost, reject stale or weak-edge proposals, and emit a deterministic trade proposal before any signing path exists.
+`0-1` is a competition-native research and execution system for Delphi's LMSR prediction markets. It separates world observations, probability beliefs, executable quotes, capital policy, and eventual outcomes so that a model opinion cannot silently become a trade.
 
 ## Governing objective
 
@@ -18,12 +18,12 @@ expected value = shares * execution edge
 
 The second quantity is the one that matters before a buy because shallow LMSR liquidity can move price materially.
 
-## v0 pipeline
+## Current pipeline
 
 ```text
-Delphi competition market
+Delphi market + public history
         ↓
-MarketSnapshot
+MarketSnapshot / ReplayView
         ↓
 MarketBelief
         ↓
@@ -35,10 +35,14 @@ risk / freshness gates
         ↓
 TradeProposal | Refusal
         ↓
-JSON evidence record
+forecast + evidence record
+        ↓
+settlement
+        ↓
+Brier / log-loss / market-relative skill
 ```
 
-No autonomous transaction signing is enabled in v0.
+No autonomous transaction signing is enabled yet.
 
 ## Quick start
 
@@ -59,22 +63,42 @@ DELPHI_API_ACCESS_KEY=<testnet Delphi API key>
 DELPHI_COMPETITION_ID=<optional competition UUID>
 ```
 
-Signing credentials are deliberately not required for the read-only v0 scan.
-
 ## Commands
 
 ```bash
-npm run build       # strict TypeScript build
-npm test            # deterministic domain tests
-npm run check       # build + test
-npm run scan        # inspect active competition markets
+npm run build
+npm test
+npm run check
+
+# live competition inspection
+npm run scan
+npm run evaluate -- <market> <outcome-index> <our-prob> <confidence> [account-value] [exposure]
+
+# M1: evidence archive and replay
+npm run history:archive
+npm run record:snapshot -- <market>
+npm run replay -- data/history/latest.json <market> <cutoff-iso-or-ms>
+npm run score:forecasts
 ```
 
-## Current boundaries
+`evaluate` persists the forecast and contemporaneous market probability to `data/forecasts.jsonl`. Once that market resolves, `score:forecasts` compares our Brier score and log loss against the market probability observed at forecast time.
 
-Implemented in the first vertical:
+`history:archive` reads the official Delphi subgraph, freezes buys, sells, settlements, failures, market metadata, and the subgraph indexing checkpoint into `data/history/latest.json`, and prints a SHA-256 evidence hash.
 
-- competition-network configuration;
+## Replay truth boundary
+
+Historical on-chain events establish trades and resolutions. They do **not** by themselves reconstruct every past marginal LMSR probability. `0-1` therefore does two things:
+
+1. imports historical trade and settlement events from Delphi/Goldsky;
+2. records live probability snapshots from today onward.
+
+`ReplayClock.at(market, cutoff)` exposes only events whose timestamps are at or before the requested cutoff. Settlement data is not visible before settlement, and forecasts created at or after settlement are excluded from scoring as hindsight.
+
+## Implemented
+
+### M0 — competition kernel
+
+- competition-testnet configuration;
 - live market discovery;
 - canonical `MarketBelief` and `TradeProposal` schemas;
 - spot-edge calculation;
@@ -83,21 +107,36 @@ Implemented in the first vertical:
 - quote ladder sizing over Delphi's real `quoteBuy` path;
 - explicit refusals instead of forced trades.
 
-Not yet claimed:
+### M1 — archive and replay foundation
+
+- normalized buy/sell history ingestion;
+- settlement/failure ingestion;
+- subgraph freshness/error checkpoint;
+- market catalog archive;
+- deterministic chronological ordering and deduplication;
+- immutable evidence hashing;
+- append-only live market observations;
+- cutoff-safe replay clock;
+- forecast persistence;
+- Brier and log-loss scoring against contemporaneous market probability;
+- tests against settlement/future-data leakage.
+
+## Not yet claimed
 
 - profitable forecasting alpha;
 - autonomous signing/execution;
-- competitor-copying strategy;
-- historical backtest/calibration;
+- competitor-signal lift;
 - Engram execution memory;
 - Cinch capital containment;
 - multi-source Research/Opportunity Foundry forecasting.
 
-Those are added only after this kernel is green and reproducible.
+These are promoted only after their experiment gates are green.
 
 ## Source truth
 
-Competition semantics are implemented against the official Gensyn Delphi skill/reference material. In particular, competition markets use LMSR rather than Delphi's regular DPM mechanism, winning shares redeem 1:1, and `quoteBuy` must be consulted before execution because liquidity parameter `b` can be shallow.
+Competition semantics are implemented against official Gensyn Delphi reference material. Competition markets use LMSR rather than Delphi's regular DPM mechanism, winning shares redeem 1:1, and quote paths must be consulted before execution because shallow liquidity can materially change average execution price.
+
+See `docs/BUILD_ORDER.md` and `docs/ASSET_IMPORT_MAP.md`.
 
 ## License
 
