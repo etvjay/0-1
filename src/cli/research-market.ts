@@ -2,8 +2,7 @@ import { competitionScope, delphi } from "../delphi/client.js";
 import { routeMarket } from "../forecast/router.js";
 import { evaluateEvidenceCouncil, defaultEvidenceCouncilPolicy } from "../forecast/evidence/council.js";
 import { runAutonomousResearch } from "../forecast/research/orchestrator.js";
-import { TavilySearchProvider } from "../forecast/research/tavily.js";
-import { OpenAIOpinionProvider } from "../forecast/research/openai-opinion.js";
+import { createResearchProviders } from "../forecast/research/providers.js";
 import { appendJsonl, sha256Json, writeJsonAtomic } from "../history/io.js";
 import type { ForecastRecord } from "../history/types.js";
 
@@ -31,14 +30,20 @@ const routing = routeMarket({
   dataSources: market.dataSources,
 });
 
+const providers = createResearchProviders();
 const research = await runAutonomousResearch(
   { routing, outcomeIndex, marketProbability },
-  new TavilySearchProvider(),
-  new OpenAIOpinionProvider(),
+  providers.search,
+  providers.opinion,
 );
 const council = evaluateEvidenceCouncil(research.bundle, defaultEvidenceCouncilPolicy);
 const packetPath = `data/research/${marketId}-${outcomeIndex}-${research.packet.generatedAtMs}.json`;
-await writeJsonAtomic(packetPath, { packet: research.packet, bundle: research.bundle, council });
+await writeJsonAtomic(packetPath, {
+  providers: { search: providers.search.name, opinion: providers.opinion.name },
+  packet: research.packet,
+  bundle: research.bundle,
+  council,
+});
 
 if (council.status === "FORECAST") {
   const base = {
@@ -55,4 +60,9 @@ if (council.status === "FORECAST") {
   await appendJsonl(process.env.ZERO_ONE_FORECAST_LOG ?? "data/forecasts.jsonl", record);
 }
 
-console.log(JSON.stringify({ packetPath, routing, council }, null, 2));
+console.log(JSON.stringify({
+  packetPath,
+  providers: { search: providers.search.name, opinion: providers.opinion.name },
+  routing,
+  council,
+}, null, 2));
