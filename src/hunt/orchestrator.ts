@@ -1,9 +1,9 @@
 import { competitionScope, delphi } from "../delphi/client.js";
-import { routeMarket } from "../forecast/router.js";
 import { evaluateEvidenceCouncil, defaultEvidenceCouncilPolicy } from "../forecast/evidence/council.js";
 import { runAutonomousResearch } from "../forecast/research/orchestrator.js";
 import type { OpinionProvider, SearchProvider } from "../forecast/research/types.js";
-import { writeJsonAtomic } from "../history/io.js";
+import { appendJsonl, sha256Json, writeJsonAtomic } from "../history/io.js";
+import type { ForecastRecord } from "../history/types.js";
 import { evaluateForecastSide, forecastSides } from "./evaluate.js";
 import { rankTriage, triageMarket } from "./triage.js";
 import type { HuntCandidateResult, HuntReport, HunterMarketInput, TriageCandidate } from "./types.js";
@@ -11,22 +11,31 @@ import type { HuntCandidateResult, HuntReport, HunterMarketInput, TriageCandidat
 const priorDrift = (oldP: number, newP: number) => Math.abs(oldP - newP);
 
 export async function buildTriageUniverse(limit = 100): Promise<{ openMarkets: number; candidates: TriageCandidate[] }> {
-  const { markets } = await delphi.listMarkets({
-    status: "open",
-    limit,
-    pricesAndImpliedProbabilities: true,
-    ...competitionScope,
-  });
+  const allMarkets = [];
+  let skip = 0;
+  while (allMarkets.length < limit) {
+    const pageSize = Math.min(100, limit - allMarkets.length);
+    const { markets } = await delphi.listMarkets({
+      status: "open",
+      skip,
+      limit: pageSize,
+      pricesAndImpliedProbabilities: true,
+      ...competitionScope,
+    });
+    allMarkets.push(...markets);
+    if (markets.length < pageSize) break;
+    skip += markets.length;
+  }
+
   const now = Date.now();
   const candidates: TriageCandidate[] = [];
-
-  for (const market of markets) {
+  for (const market of allMarkets) {
     let detail = market;
     if (!detail.spotImpliedProbabilities || detail.spotImpliedProbabilities.length === 0) {
       detail = await delphi.getMarket({ id: market.id, pricesAndImpliedProbabilities: true, ...competitionScope });
     }
     const input: HunterMarketInput = {
-      marketId: detail.id as `0x${string}`,
+      marketId: detail.id.toLowerCase() as `0x${string}`,
       question: detail.metadata?.question ?? detail.id,
       outcomes: detail.metadata?.outcomes ?? [],
       category: detail.category,
@@ -39,7 +48,15 @@ export async function buildTriageUniverse(limit = 100): Promise<{ openMarkets: n
     candidates.push(...triageMarket(input, now));
   }
 
-  return { openMarkets: markets.length, candidates: rankTriage(candidates) };
+  return { openMarkets: allMarkets.length, candidates: rankTriage(candidates) };
+}
+
+export function selectResearchCandidates(candidates: TriageCandidate[], budget: number): TriageCandidate[] {
+  const bestByMarket = new Map<string, TriageCandidate>();
+  for (const candidate of rankTriage(candidates)) {
+    if (!bestByMarket.has(candidate.marketId)) bestByMarket.set(candidate.marketId, candidate);
+  }
+  return [...bestByMarket.values()].slice(0, Math.max(0, budget));
 }
 
 export async function huntOpportunities(
@@ -52,6 +69,7 @@ export async function huntOpportunities(
     accountValue?: number;
     marketExposure?: number;
     packetDir?: string;
+    forecastLog?: string;
   } = {},
 ): Promise<HuntReport> {
   const marketLimit = options.marketLimit ?? 100;
@@ -60,9 +78,10 @@ export async function huntOpportunities(
   const accountValue = options.accountValue ?? 100;
   const marketExposure = options.marketExposure ?? 0;
   const packetDir = options.packetDir ?? "data/hunt/research";
+  const forecastLog = options.forecastLog ?? process.env.ZERO_ONE_FORECAST_LOG ?? "data/forecasts.jsonl";
 
   const universe = await buildTriageUniverse(marketLimit);
-  const selected = universe.candidates.slice(0, Math.max(0, researchBudget));
+  const selected = selectResearchCandidates(universe.candidates, researchBudget);
   const results: HuntCandidateResult[] = [];
 
   for (const candidate of selected) {
@@ -95,6 +114,19 @@ export async function huntOpportunities(
         continue;
       }
 
+      const forecastBase = {
+        schemaVersion: "0-1.forecast.v1" as const,
+        marketId: candidate.marketId,
+        outcomeIndex: candidate.outcomeIndex,
+        probability: council.probability,
+        confidence: council.confidence,
+        marketProbability: candidate.marketProbability,
+        method: council.method,
+        createdAtMs: council.generatedAtMs,
+      };
+      const forecastRecord: ForecastRecord = { id: sha256Json(forecastBase), ...forecastBase };
+      await appendJsonl(forecastLog, forecastRecord);
+
       const refreshed = await delphi.getMarket({
         id: candidate.marketId,
         pricesAndImpliedProbabilities: true,
@@ -117,7 +149,7 @@ export async function huntOpportunities(
         continue;
       }
 
-      const drift = priorDrift(candidate.marketProbability, refreshedPrior);
+      const drift = priorDrift(candidate.marketProbability, refreshedPrior as number);
       if (drift > maxPriorDrift) {
         results.push({
           candidate,
@@ -138,7 +170,9 @@ export async function huntOpportunities(
       for (const side of sideSpecs) {
         sides.push(await evaluateForecastSide(side, council, accountValue, marketExposure));
       }
-      const bestSide = [...sides].filter((side) => side.bestProposal !== null).sort((a, b) => b.opportunityScore - a.opportunityScore)[0] ?? null;
+      const bestSide = [...sides]
+        .filter((side) => side.bestProposal !== null)
+        .sort((a, b) => b.opportunityScore - a.opportunityScore)[0] ?? null;
 
       results.push({
         candidate,
@@ -166,7 +200,10 @@ export async function huntOpportunities(
     }
   }
 
-  results.sort((a, b) => (b.bestSide?.opportunityScore ?? 0) - (a.bestSide?.opportunityScore ?? 0) || b.candidate.triageScore - a.candidate.triageScore);
+  results.sort((a, b) =>
+    (b.bestSide?.opportunityScore ?? 0) - (a.bestSide?.opportunityScore ?? 0) ||
+    b.candidate.triageScore - a.candidate.triageScore,
+  );
 
   return {
     schemaVersion: "0-1.hunt-report.v1",
