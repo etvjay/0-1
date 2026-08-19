@@ -10,19 +10,25 @@ export function forecastSides(
   forecast: EvidenceCouncilForecast,
   refreshedProbabilities: number[],
 ): ForecastSide[] {
+  const refreshedPrimary = refreshedProbabilities[candidate.outcomeIndex];
+  const primaryMarketProbability =
+    typeof refreshedPrimary === "number" && Number.isFinite(refreshedPrimary)
+      ? refreshedPrimary
+      : candidate.marketProbability;
+
   const primary: ForecastSide = {
     marketId: candidate.marketId,
     outcomeIndex: candidate.outcomeIndex,
     outcome: candidate.outcomes[candidate.outcomeIndex] ?? `#${candidate.outcomeIndex}`,
     probability: forecast.probability,
-    marketProbability: refreshedProbabilities[candidate.outcomeIndex] ?? candidate.marketProbability,
+    marketProbability: primaryMarketProbability,
     derivedAsComplement: false,
   };
 
   if (candidate.outcomes.length !== 2) return [primary];
   const oppositeIndex = candidate.outcomeIndex === 0 ? 1 : 0;
   const oppositeMarketP = refreshedProbabilities[oppositeIndex];
-  if (!Number.isFinite(oppositeMarketP)) return [primary];
+  if (typeof oppositeMarketP !== "number" || !Number.isFinite(oppositeMarketP)) return [primary];
 
   return [
     primary,
