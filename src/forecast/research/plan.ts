@@ -4,6 +4,13 @@ import type { ResearchPlan, ResearchQuery } from "./types.js";
 
 const clean = (value: string) => value.replace(/\s+/g, " ").trim();
 
+const searchSubject = (question: string): string => {
+  const subject = clean(question).replace(/[?]+$/, "");
+  // DDGS is much more reliable with natural, unquoted queries than with the
+  // full resolution proposition plus boolean-style search boilerplate.
+  return subject.length <= 220 ? subject : `${subject.slice(0, 217).trimEnd()}...`;
+};
+
 const sourceDomains = (routing: MarketRoutingDecision): string[] => {
   const raw = routing.resolution.acceptableDataSources;
   const domains: string[] = [];
@@ -22,7 +29,7 @@ const make = (
   intent: ResearchQuery["intent"],
   query: string,
   includeDomains: string[] = [],
-  maxResults = 5,
+  maxResults = 4,
 ): ResearchQuery => {
   const base = { intent, query: clean(query), includeDomains, maxResults };
   return { id: sha256Json(base), ...base };
@@ -34,23 +41,24 @@ export function buildResearchPlan(
   nowMs = Date.now(),
 ): ResearchPlan {
   const { resolution, classification } = routing;
-  const outcome = resolution.outcomes[outcomeIndex] ?? `outcome ${outcomeIndex}`;
+  const outcome = clean(resolution.outcomes[outcomeIndex] ?? `outcome ${outcomeIndex}`);
   const officialDomains = sourceDomains(routing);
-  const proposition = `\"${resolution.question}\" outcome \"${outcome}\"`;
+  const subject = searchSubject(resolution.question);
+  const primaryQuery = officialDomains.length > 0 ? subject : `${subject} official`;
 
   const queries: ResearchQuery[] = [
-    make("PRIMARY", `${proposition} official primary source latest`, officialDomains, 5),
-    make("CORROBORATE", `${proposition} latest evidence independent reporting`, [], 6),
-    make("OPPOSE", `${proposition} evidence against contrary false not happen`, [], 6),
-    make("BASE_RATE", `${classification.archetype} similar historical cases base rate`, [], 5),
+    make("PRIMARY", primaryQuery, officialDomains, 4),
+    make("CORROBORATE", `${subject} ${outcome} latest`, [], 4),
+    make("OPPOSE", `${subject} ${outcome} contrary evidence`, [], 4),
+    make("BASE_RATE", `${classification.archetype.replaceAll("_", " ")} historical base rate`, [], 3),
   ];
 
   if (classification.domain === "POLITICS") {
-    queries.push(make("CORROBORATE", `${resolution.question} polls polling average latest`, [], 6));
+    queries.push(make("CORROBORATE", `${subject} latest polls polling average`, [], 4));
   } else if (classification.domain === "SPORTS") {
-    queries.push(make("PRIMARY", `${resolution.question} official score injury lineup schedule`, officialDomains, 6));
+    queries.push(make("PRIMARY", `${subject} official score lineup injury`, officialDomains, 4));
   } else if (classification.domain === "ECONOMICS") {
-    queries.push(make("PRIMARY", `${resolution.question} official statistical release central bank government`, officialDomains, 6));
+    queries.push(make("PRIMARY", `${subject} official release data`, officialDomains, 4));
   }
 
   return {
