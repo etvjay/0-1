@@ -20,12 +20,35 @@ const asRecord = (value: unknown): UnknownRecord => {
   return value as UnknownRecord;
 };
 
+const assumptionText = (value: unknown): string | null => {
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text || null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value && typeof value === "object") {
+    try {
+      const text = JSON.stringify(value);
+      return text && text !== "{}" && text !== "[]" ? text : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+};
+
+const normalizeAssumptions = (value: unknown): string[] => {
+  if (value === null || value === undefined) return [];
+  const values = Array.isArray(value) ? value : [value];
+  return [...new Set(values.map(assumptionText).filter((item): item is string => item !== null))];
+};
+
 const normalizeStructuredOpinion = (value: unknown): StructuredOpinion => {
   const record = asRecord(value);
   const probability = record.probability;
   const confidence = record.confidence;
   const evidenceIds = record.evidence_ids ?? record.evidenceIds;
-  const assumptions = record.assumptions ?? [];
+  const assumptions = normalizeAssumptions(record.assumptions);
   const rationale = record.rationale ?? record.reasoning;
 
   if (typeof probability !== "number" || !Number.isFinite(probability) || probability < 0 || probability > 1) {
@@ -36,9 +59,6 @@ const normalizeStructuredOpinion = (value: unknown): StructuredOpinion => {
   }
   if (!Array.isArray(evidenceIds) || !evidenceIds.every((id) => typeof id === "string")) {
     throw new Error("Hermes opinion evidence IDs invalid");
-  }
-  if (!Array.isArray(assumptions) || !assumptions.every((item) => typeof item === "string")) {
-    throw new Error("Hermes opinion assumptions invalid");
   }
   if (typeof rationale !== "string" || !rationale.trim()) {
     throw new Error("Hermes opinion rationale invalid");
@@ -100,7 +120,7 @@ const compactValue = (value: unknown): unknown => {
 };
 
 export class HermesOpinionProvider implements OpinionProvider {
-  readonly name = "hermes-opinion-v3";
+  readonly name = "hermes-opinion-v4";
   private readonly client = new HermesClient();
 
   async forecast(request: OpinionRequest): Promise<ForecastOpinion> {
@@ -120,6 +140,7 @@ export class HermesOpinionProvider implements OpinionProvider {
       "Required keys: probability, confidence, evidence_ids, assumptions, rationale.",
       "probability and confidence must be numbers in [0,1].",
       "evidence_ids must contain only supplied evidence IDs and at least one ID.",
+      "assumptions should be an array of short strings; use [] when none are needed.",
     ].join(" ");
 
     const user = JSON.stringify({
