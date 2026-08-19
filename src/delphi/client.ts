@@ -11,5 +11,10 @@ export const delphi = new DelphiClient({ network: "competition-testnet" });
 export const competitionId = process.env.DELPHI_COMPETITION_ID || undefined;
 export const competitionScope = competitionId ? { competitionId } : {};
 
+export const getWalletAddress = async (): Promise<`0x${string}`> => {
+  const { address } = await delphi.getSigner();
+  return address;
+};
+
 export const sharesToBigint = (shares: number) => BigInt(Math.round(shares * 1e18));
 export const collateralToNumber = (tokens: bigint) => Number(tokens) / 1e6;
