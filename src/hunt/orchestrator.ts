@@ -15,13 +15,14 @@ export async function buildTriageUniverse(limit = 100): Promise<{ openMarkets: n
   let skip = 0;
   while (allMarkets.length < limit) {
     const pageSize = Math.min(100, limit - allMarkets.length);
-    const { markets } = await delphi.listMarkets({
+    const response = await delphi.listMarkets({
       status: "open",
       skip,
       limit: pageSize,
       pricesAndImpliedProbabilities: true,
       ...competitionScope,
     });
+    const markets = response.markets ?? [];
     allMarkets.push(...markets);
     if (markets.length < pageSize) break;
     skip += markets.length;
@@ -136,7 +137,7 @@ export async function huntOpportunities(
       });
       const refreshedProbabilities = refreshed.spotImpliedProbabilities ?? [];
       const refreshedPrior = refreshedProbabilities[candidate.outcomeIndex];
-      if (!Number.isFinite(refreshedPrior)) {
+      if (typeof refreshedPrior !== "number" || !Number.isFinite(refreshedPrior)) {
         results.push({
           candidate,
           status: "PRIOR_DRIFT",
@@ -151,7 +152,7 @@ export async function huntOpportunities(
         continue;
       }
 
-      const drift = priorDrift(candidate.marketProbability, refreshedPrior as number);
+      const drift = priorDrift(candidate.marketProbability, refreshedPrior);
       if (drift > maxPriorDrift) {
         results.push({
           candidate,
