@@ -32,25 +32,36 @@ export async function runAutonomousResearch(
   const roles = ["ADVOCATE", "OPPOSE"] as const;
   const opinions: ForecastOpinion[] = [];
   const opinionFailures: OpinionFailureDiagnostic[] = [];
-  for (const role of roles) {
-    try {
-      opinions.push(await opinionProvider.forecast({
-        routing,
-        outcomeIndex,
-        outcomeLabel,
-        marketProbability,
-        role,
-        evidence,
-        nowMs,
-      }));
-    } catch (error) {
-      // Preserve the failure in the research packet. The council still sees the
-      // missing opinion as missing judgment, never as a fabricated probability.
+
+  if (evidence.length === 0) {
+    for (const role of roles) {
       opinionFailures.push({
         role,
         provider: opinionProvider.name,
-        error: error instanceof Error ? error.message : String(error),
+        error: "NO_EVIDENCE: forecasting skipped because retrieval produced zero normalized evidence items",
       });
+    }
+  } else {
+    for (const role of roles) {
+      try {
+        opinions.push(await opinionProvider.forecast({
+          routing,
+          outcomeIndex,
+          outcomeLabel,
+          marketProbability,
+          role,
+          evidence,
+          nowMs,
+        }));
+      } catch (error) {
+        // Preserve the failure in the research packet. The council still sees the
+        // missing opinion as missing judgment, never as a fabricated probability.
+        opinionFailures.push({
+          role,
+          provider: opinionProvider.name,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 
