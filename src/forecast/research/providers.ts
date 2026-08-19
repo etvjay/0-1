@@ -20,12 +20,20 @@ export function createResearchProviders(): ResearchProviders {
 
   const requested = (process.env.ZERO_ONE_OPINION_PROVIDER ?? "").toLowerCase();
   let opinion: OpinionProvider;
-  if (requested === "agentrouter" || (!requested && process.env.AGENTROUTER_API_KEY)) {
+
+  if (requested === "agentrouter") {
     opinion = new AgentRouterOpinionProvider();
-  } else if (requested === "openai" || (!requested && process.env.OPENAI_API_KEY)) {
+  } else if (requested === "openai") {
     opinion = new OpenAIOpinionProvider();
+  } else if (requested) {
+    throw new Error(`Unsupported ZERO_ONE_OPINION_PROVIDER=${requested}`);
+  } else if (process.env.OPENAI_API_KEY) {
+    // Prefer a directly configured working provider. AgentRouter is opt-in while its route is unstable.
+    opinion = new OpenAIOpinionProvider();
+  } else if (process.env.AGENTROUTER_API_KEY) {
+    opinion = new AgentRouterOpinionProvider();
   } else {
-    throw new Error("No opinion provider configured. Set AGENTROUTER_API_KEY + ZERO_ONE_AGENTROUTER_MODEL or OPENAI_API_KEY.");
+    throw new Error("No opinion provider configured. Set ZERO_ONE_OPINION_PROVIDER plus the matching provider credentials.");
   }
 
   return {
