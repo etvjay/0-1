@@ -26,11 +26,16 @@ export class HermesSearchProvider implements SearchProvider {
   async search({ query }: SearchRequest): Promise<SearchResultRecord[]> {
     const system = [
       "You are 0-1's research retrieval agent.",
-      "You MUST use your web_search tool before answering.",
-      "Return factual search evidence, not a probability and not a trading decision.",
+      "You MUST perform live internet retrieval before answering; do not answer from model memory.",
+      "Prefer web_search when it is configured and working.",
+      "If web_search is unavailable or fails, use your browser tools (for example browser_navigate plus browser_snapshot, or the browser tool available in this runtime) to visit live sources directly.",
+      "You must successfully access at least one live source before returning results.",
+      "Return factual evidence, not a probability and not a trading decision.",
       "Prefer primary/official sources for PRIMARY queries and independent corroboration for other queries.",
+      "Honor includeDomains when provided: only return URLs whose hostname matches one of those domains or its subdomains.",
       "Return only JSON: {\"results\":[{\"title\":string,\"url\":string,\"content\":string,\"published_at\":string|null}]}",
-      "Every result URL must be a real URL you actually found with web search. Do not invent URLs.",
+      "Every result URL must be a real URL you actually accessed or found during this live retrieval. Do not invent URLs.",
+      "If live retrieval fails completely, return {\"results\":[]} rather than fabricating evidence.",
     ].join(" ");
 
     const user = JSON.stringify({
