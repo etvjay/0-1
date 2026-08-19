@@ -4,11 +4,12 @@ import { competitionScope, delphi } from "../delphi/client.js";
 import { quoteLadder } from "../delphi/quotes.js";
 
 const limit = Number(process.argv[2] ?? 25);
-const { markets } = await delphi.listMarkets({
+const response = await delphi.listMarkets({
   status: "open",
   limit: Number.isFinite(limit) && limit > 0 ? limit : 25,
   ...competitionScope,
 });
+const markets = response.markets ?? [];
 
 console.log(JSON.stringify({
   network: "competition-testnet",
