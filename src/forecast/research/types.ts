@@ -57,6 +57,12 @@ export interface OpinionProvider {
   forecast(request: OpinionRequest): Promise<ForecastOpinion>;
 }
 
+export interface OpinionFailureDiagnostic {
+  role: Extract<OpinionRole, "ADVOCATE" | "OPPOSE">;
+  provider: string;
+  error: string;
+}
+
 export interface ResearchPacket {
   schemaVersion: "0-1.research-packet.v1";
   generatedAtMs: number;
@@ -66,6 +72,7 @@ export interface ResearchPacket {
   plan: ResearchPlan;
   searchResults: SearchResultRecord[];
   evidence: EvidenceItem[];
+  opinionFailures: OpinionFailureDiagnostic[];
 }
 
 export interface AutonomousResearchResult {
