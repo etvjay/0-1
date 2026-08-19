@@ -68,6 +68,7 @@ export async function huntOpportunities(
     maxPriorDrift?: number;
     accountValue?: number;
     marketExposure?: number;
+    marketExposureByMarket?: Record<string, number>;
     packetDir?: string;
     forecastLog?: string;
   } = {},
@@ -76,7 +77,8 @@ export async function huntOpportunities(
   const researchBudget = options.researchBudget ?? 8;
   const maxPriorDrift = options.maxPriorDrift ?? 0.08;
   const accountValue = options.accountValue ?? 100;
-  const marketExposure = options.marketExposure ?? 0;
+  const defaultMarketExposure = options.marketExposure ?? 0;
+  const marketExposureByMarket = options.marketExposureByMarket ?? {};
   const packetDir = options.packetDir ?? "data/hunt/research";
   const forecastLog = options.forecastLog ?? process.env.ZERO_ONE_FORECAST_LOG ?? "data/forecasts.jsonl";
 
@@ -165,6 +167,7 @@ export async function huntOpportunities(
         continue;
       }
 
+      const marketExposure = marketExposureByMarket[candidate.marketId] ?? defaultMarketExposure;
       const sideSpecs = forecastSides(candidate, council, refreshedProbabilities);
       const sides = [];
       for (const side of sideSpecs) {
