@@ -3,7 +3,7 @@ import { getPortfolioSnapshot } from "../delphi/portfolio.js";
 import { sweepSettledPositions } from "../delphi/settlement.js";
 import { createResearchProviders } from "../forecast/research/providers.js";
 import { huntOpportunities } from "../hunt/orchestrator.js";
-import { sha256Json } from "../history/io.js";
+import { sha256Json, writeJsonAtomic } from "../history/io.js";
 import {
   loadRuntimeState,
   opportunityKey,
@@ -39,6 +39,7 @@ export interface CompeteCycleResult {
   redeemedMarkets: string[];
   liquidatedMarkets: string[];
   settlementFailures: number;
+  huntReportPath: string | null;
 }
 
 const pendingFromResult = (result: any, accountValue: number, marketExposure: number): PendingTradeState | null => {
@@ -140,6 +141,7 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
     redeemedMarkets,
     liquidatedMarkets,
     settlementFailures,
+    huntReportPath: null,
   };
 
   if (live) {
@@ -186,6 +188,10 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
       maxPriorDrift: numberEnv("ZERO_ONE_HUNT_MAX_PRIOR_DRIFT", 0.08),
     },
   );
+  const huntReportDir = process.env.ZERO_ONE_HUNT_REPORT_DIR ?? "data/hunt/reports";
+  const huntReportPath = `${huntReportDir}/${report.generatedAtMs}-compete.json`;
+  await writeJsonAtomic(huntReportPath, report);
+  result.huntReportPath = huntReportPath;
 
   const actionable = report.results.filter((item) => item.status === "ACTIONABLE" && item.bestSide?.bestProposal);
   result.actionable = actionable.length;
