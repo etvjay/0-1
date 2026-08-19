@@ -3,7 +3,13 @@ import type { MarketRoutingDecision } from "../types.js";
 import type { EvidenceForecastBundle, ForecastOpinion } from "../evidence/types.js";
 import { normalizeSearchEvidence } from "./normalize.js";
 import { buildResearchPlan } from "./plan.js";
-import type { AutonomousResearchResult, OpinionFailureDiagnostic, OpinionProvider, SearchProvider } from "./types.js";
+import type {
+  AutonomousResearchResult,
+  OpinionFailureDiagnostic,
+  OpinionProvider,
+  SearchFailureDiagnostic,
+  SearchProvider,
+} from "./types.js";
 
 export async function runAutonomousResearch(
   input: {
@@ -26,6 +32,18 @@ export async function runAutonomousResearch(
   const plan = buildResearchPlan(routing, outcomeIndex, nowMs);
   const settled = await Promise.allSettled(plan.queries.map((query) => searchProvider.search({ query })));
   const searchResults = settled.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  const searchFailures: SearchFailureDiagnostic[] = settled.flatMap((result, index) => {
+    if (result.status === "fulfilled") return [];
+    const query = plan.queries[index];
+    if (!query) return [];
+    return [{
+      queryId: query.id,
+      intent: query.intent,
+      query: query.query,
+      provider: searchProvider.name,
+      error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+    }];
+  });
   const evidence = normalizeSearchEvidence(searchResults, nowMs);
   const outcomeLabel = routing.resolution.outcomes[outcomeIndex] ?? `outcome ${outcomeIndex}`;
 
@@ -54,8 +72,6 @@ export async function runAutonomousResearch(
           nowMs,
         }));
       } catch (error) {
-        // Preserve the failure in the research packet. The council still sees the
-        // missing opinion as missing judgment, never as a fabricated probability.
         opinionFailures.push({
           role,
           provider: opinionProvider.name,
@@ -84,6 +100,7 @@ export async function runAutonomousResearch(
       marketProbability,
       plan,
       searchResults,
+      searchFailures,
       evidence,
       opinionFailures,
     },
