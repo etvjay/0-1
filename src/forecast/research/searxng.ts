@@ -1,5 +1,5 @@
 import { sha256Json } from "../../history/io.js";
-import type { SearchProvider, SearchRequest, SearchResultRecord } from "./types.js";
+import type { ResearchQuery, SearchProvider, SearchRequest, SearchResultRecord } from "./types.js";
 
 interface SearxngItem {
   title?: unknown;
@@ -29,17 +29,33 @@ const matchesDomain = (url: URL, domains: string[]): boolean => {
   });
 };
 
+const SEARCH_STOPWORDS = new Set([
+  "a", "an", "and", "are", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "the", "their", "to", "will", "with",
+]);
+
+const fallbackSearchQuery = (value: string): string => {
+  const tokens = value
+    .replace(/[?"'()[\]{}:,;]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+  const reduced = tokens.filter((token) => !SEARCH_STOPWORDS.has(token.toLowerCase()));
+  const selected = reduced.length >= 3 ? reduced : tokens;
+  return selected.slice(0, 18).join(" ");
+};
+
 export class SearxngSearchProvider implements SearchProvider {
-  readonly name = "searxng-local-v1";
+  readonly name = "searxng-local-v2";
 
   constructor(
     private readonly baseUrl = process.env.SEARXNG_URL ?? "http://127.0.0.1:8888",
     private readonly timeoutMs = Number(process.env.ZERO_ONE_SEARXNG_TIMEOUT_MS ?? 10_000),
   ) {}
 
-  async search({ query }: SearchRequest): Promise<SearchResultRecord[]> {
+  private async fetchItems(searchQuery: string): Promise<SearxngItem[]> {
     const endpoint = new URL("/search", this.baseUrl.replace(/\/$/, ""));
-    endpoint.searchParams.set("q", query.query);
+    endpoint.searchParams.set("q", searchQuery);
     endpoint.searchParams.set("format", "json");
 
     const response = await fetch(endpoint, {
@@ -50,12 +66,14 @@ export class SearxngSearchProvider implements SearchProvider {
 
     const payload = await response.json() as SearxngResponse;
     if (!Array.isArray(payload.results)) throw new Error("SearXNG response JSON shape invalid");
+    return payload.results as SearxngItem[];
+  }
 
-    const observedAtMs = Date.now();
+  private toRecords(items: SearxngItem[], query: ResearchQuery, observedAtMs: number): SearchResultRecord[] {
     const maxResults = Math.max(0, Math.min(query.maxResults, 8));
     const records: SearchResultRecord[] = [];
 
-    for (const raw of payload.results as SearxngItem[]) {
+    for (const raw of items) {
       if (records.length >= maxResults) break;
       if (!raw || typeof raw.title !== "string" || typeof raw.url !== "string") continue;
 
@@ -69,8 +87,9 @@ export class SearxngSearchProvider implements SearchProvider {
       if (!matchesDomain(url, query.includeDomains)) continue;
 
       const title = raw.title.trim();
-      const content = typeof raw.content === "string" ? raw.content.trim() : "";
-      if (!title || !content) continue;
+      if (!title) continue;
+      const snippet = typeof raw.content === "string" ? raw.content.trim() : "";
+      const content = snippet || `Search result title: ${title}`;
 
       const score = typeof raw.score === "number" && Number.isFinite(raw.score) ? raw.score : null;
       const publishedAtMs = parsePublished(raw.publishedDate ?? raw.published_date);
@@ -89,5 +108,19 @@ export class SearxngSearchProvider implements SearchProvider {
     }
 
     return records;
+  }
+
+  async search({ query }: SearchRequest): Promise<SearchResultRecord[]> {
+    const observedAtMs = Date.now();
+    const primary = this.toRecords(await this.fetchItems(query.query), query, observedAtMs);
+    if (primary.length > 0) return primary;
+
+    const fallback = fallbackSearchQuery(query.query);
+    if (fallback && fallback !== query.query) {
+      const retried = this.toRecords(await this.fetchItems(fallback), query, observedAtMs);
+      if (retried.length > 0) return retried;
+    }
+
+    throw new Error(`SearXNG returned no usable results for ${query.intent} after bounded fallback`);
   }
 }
