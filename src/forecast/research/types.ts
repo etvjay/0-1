@@ -42,6 +42,14 @@ export interface SearchProvider {
   search(request: SearchRequest): Promise<SearchResultRecord[]>;
 }
 
+export interface SearchFailureDiagnostic {
+  queryId: string;
+  intent: ResearchQueryIntent;
+  query: string;
+  provider: string;
+  error: string;
+}
+
 export interface OpinionRequest {
   routing: MarketRoutingDecision;
   outcomeIndex: number;
@@ -71,6 +79,7 @@ export interface ResearchPacket {
   marketProbability: number;
   plan: ResearchPlan;
   searchResults: SearchResultRecord[];
+  searchFailures: SearchFailureDiagnostic[];
   evidence: EvidenceItem[];
   opinionFailures: OpinionFailureDiagnostic[];
 }
