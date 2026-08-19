@@ -3,7 +3,7 @@ import type { MarketRoutingDecision } from "../types.js";
 import type { EvidenceForecastBundle, ForecastOpinion } from "../evidence/types.js";
 import { normalizeSearchEvidence } from "./normalize.js";
 import { buildResearchPlan } from "./plan.js";
-import type { AutonomousResearchResult, OpinionProvider, SearchProvider } from "./types.js";
+import type { AutonomousResearchResult, OpinionFailureDiagnostic, OpinionProvider, SearchProvider } from "./types.js";
 
 export async function runAutonomousResearch(
   input: {
@@ -31,6 +31,7 @@ export async function runAutonomousResearch(
 
   const roles = ["ADVOCATE", "OPPOSE"] as const;
   const opinions: ForecastOpinion[] = [];
+  const opinionFailures: OpinionFailureDiagnostic[] = [];
   for (const role of roles) {
     try {
       opinions.push(await opinionProvider.forecast({
@@ -42,8 +43,14 @@ export async function runAutonomousResearch(
         evidence,
         nowMs,
       }));
-    } catch {
-      // The council must see missing opinions as missing evidence/judgment, not as fabricated fallback probability.
+    } catch (error) {
+      // Preserve the failure in the research packet. The council still sees the
+      // missing opinion as missing judgment, never as a fabricated probability.
+      opinionFailures.push({
+        role,
+        provider: opinionProvider.name,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -67,6 +74,7 @@ export async function runAutonomousResearch(
       plan,
       searchResults,
       evidence,
+      opinionFailures,
     },
     bundle,
   };
