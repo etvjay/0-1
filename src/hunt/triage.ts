@@ -58,9 +58,11 @@ export function triageMarket(input: HunterMarketInput, nowMs = Date.now()): Tria
   const archetypeSupport = archetypeSupportScore(routing.classification.specialists);
   const outcomeEfficiency = outcomeEfficiencyScore(input.outcomes);
 
-  return input.outcomes.flatMap((outcome, outcomeIndex) => {
-    const marketProbability = input.probabilities[outcomeIndex];
-    if (!Number.isFinite(marketProbability) || marketProbability < 0 || marketProbability > 1) return [];
+  return input.outcomes.flatMap((outcome, outcomeIndex): TriageCandidate[] => {
+    const rawMarketProbability = input.probabilities[outcomeIndex];
+    if (typeof rawMarketProbability !== "number" || !Number.isFinite(rawMarketProbability)) return [];
+    if (rawMarketProbability < 0 || rawMarketProbability > 1) return [];
+    const marketProbability = rawMarketProbability;
     const marketUncertainty = uncertaintyScore(marketProbability);
     const features: TriageFeatures = {
       resolutionProximity,
@@ -97,7 +99,7 @@ export function triageMarket(input: HunterMarketInput, nowMs = Date.now()): Tria
         `archetypeSupport=${archetypeSupport.toFixed(3)}`,
       ],
       observedAtMs: input.observedAtMs,
-    } satisfies TriageCandidate];
+    }];
   });
 }
 
