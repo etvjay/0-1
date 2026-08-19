@@ -6,6 +6,9 @@ import type { EvidenceCouncilForecast } from "../src/forecast/evidence/types.js"
 
 const marketId = "0x1111111111111111111111111111111111111111" as const;
 const now = Date.UTC(2026, 7, 18, 18, 0, 0);
+const approxEqual = (actual: number, expected: number, epsilon = 1e-12): void => {
+  assert.ok(Math.abs(actual - expected) <= epsilon, `expected ${actual} to be within ${epsilon} of ${expected}`);
+};
 
 test("triage favors near-resolution resolvable binary markets", () => {
   const near = triageMarket({
@@ -71,7 +74,7 @@ test("binary forecast exposes complementary opposite side", () => {
   const sides = forecastSides(candidate, forecast, [0.42, 0.58]);
   assert.equal(sides.length, 2);
   assert.equal(sides[0]!.probability, 0.7);
-  assert.equal(sides[1]!.probability, 0.3);
+  approxEqual(sides[1]!.probability, 0.3);
   assert.equal(sides[1]!.derivedAsComplement, true);
   assert.equal(sides[1]!.marketProbability, 0.58);
 });
