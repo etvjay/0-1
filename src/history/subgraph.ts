@@ -39,7 +39,8 @@ async function listCatalog(): Promise<MarketCatalogRecord[]> {
     let skip = 0;
     const limit = 100;
     while (true) {
-      const { markets } = await delphi.listMarkets({ status, limit, skip, ...competitionScope });
+      const response = await delphi.listMarkets({ status, limit, skip, ...competitionScope });
+      const markets = response.markets ?? [];
       for (const market of markets) {
         const marketId = market.id.toLowerCase() as HexAddress;
         records.set(marketId, {
