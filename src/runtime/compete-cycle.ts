@@ -1,4 +1,5 @@
 import { executeBoundedBuy } from "../execution/live-buy.js";
+import { getPortfolioSnapshot } from "../delphi/portfolio.js";
 import { createResearchProviders } from "../forecast/research/providers.js";
 import { huntOpportunities } from "../hunt/orchestrator.js";
 import { sha256Json } from "../history/io.js";
@@ -30,6 +31,10 @@ export interface CompeteCycleResult {
   skippedCooldown: number;
   spentEstimateTst: number;
   transactions: string[];
+  wallet: `0x${string}` | null;
+  accountValueTst: number;
+  collateralBalanceTst: number;
+  markedPositionsTst: number;
 }
 
 const pendingFromResult = (result: any, accountValue: number, marketExposure: number): PendingTradeState | null => {
@@ -77,9 +82,25 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
   await saveRuntimeState(statePath, state);
 
   const live = liveEnabled();
-  const accountValue = numberEnv("ZERO_ONE_HUNT_ACCOUNT_VALUE", 100);
-  const marketExposure = numberEnv("ZERO_ONE_HUNT_MARKET_EXPOSURE", 0);
-  const cycleBudgetTst = numberEnv("ZERO_ONE_MAX_CYCLE_TST", 20);
+  let wallet: `0x${string}` | null = null;
+  let accountValue = numberEnv("ZERO_ONE_HUNT_ACCOUNT_VALUE", 100);
+  let collateralBalanceTst = accountValue;
+  let markedPositionsTst = 0;
+  let marketExposureByMarket: Record<string, number> = {};
+
+  try {
+    const portfolio = await getPortfolioSnapshot();
+    wallet = portfolio.wallet;
+    accountValue = portfolio.accountValueTst;
+    collateralBalanceTst = portfolio.collateralBalanceTst;
+    markedPositionsTst = portfolio.markedPositionsTst;
+    marketExposureByMarket = portfolio.marketExposureTst;
+  } catch (error) {
+    if (live) throw error;
+    // Shadow mode may run without a configured signer; keep explicit fallback values.
+  }
+
+  const cycleBudgetTst = Math.min(numberEnv("ZERO_ONE_MAX_CYCLE_TST", 20), Math.max(0, collateralBalanceTst));
   const cooldownMs = numberEnv("ZERO_ONE_MARKET_COOLDOWN_MS", 30 * 60 * 1000);
   const retryDelayMs = numberEnv("ZERO_ONE_PENDING_RETRY_MS", 30_000);
 
@@ -93,6 +114,10 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
     skippedCooldown: 0,
     spentEstimateTst: 0,
     transactions: [],
+    wallet,
+    accountValueTst: accountValue,
+    collateralBalanceTst,
+    markedPositionsTst,
   };
 
   if (live) {
@@ -134,7 +159,8 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
       marketLimit: numberEnv("ZERO_ONE_HUNT_MARKET_LIMIT", 100),
       researchBudget: numberEnv("ZERO_ONE_HUNT_RESEARCH_BUDGET", 8),
       accountValue,
-      marketExposure,
+      marketExposure: 0,
+      marketExposureByMarket,
       maxPriorDrift: numberEnv("ZERO_ONE_HUNT_MAX_PRIOR_DRIFT", 0.08),
     },
   );
@@ -144,6 +170,9 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
 
   if (live) {
     for (const item of actionable) {
+      const proposal = item.bestSide?.bestProposal;
+      if (!proposal) continue;
+      const marketExposure = marketExposureByMarket[proposal.marketId] ?? 0;
       const pending = pendingFromResult(item, accountValue, marketExposure);
       if (!pending) continue;
       const key = opportunityKey(pending.marketId, pending.outcomeIndex);
@@ -152,7 +181,7 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
         result.skippedCooldown += 1;
         continue;
       }
-      const estimatedCost = item.bestSide?.bestProposal?.quotedCost ?? 0;
+      const estimatedCost = proposal.quotedCost ?? 0;
       if (estimatedCost <= 0 || result.spentEstimateTst + estimatedCost > cycleBudgetTst) continue;
 
       state.pendingTrades[key] = pending;
