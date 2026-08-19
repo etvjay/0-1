@@ -19,36 +19,55 @@ const parsePublished = (value?: string | null): number | null => {
   return Number.isFinite(ms) ? ms : null;
 };
 
+const browserSearchQuery = (query: SearchRequest["query"]): string => {
+  if (query.includeDomains.length === 0) return query.query;
+  const domainClause = query.includeDomains.map((domain) => `site:${domain}`).join(" OR ");
+  return `${query.query} (${domainClause})`;
+};
+
+const searchUrls = (query: SearchRequest["query"]): string[] => {
+  const encoded = encodeURIComponent(browserSearchQuery(query));
+  return [
+    `https://www.bing.com/search?q=${encoded}&count=5`,
+    `https://search.brave.com/search?q=${encoded}&source=web`,
+  ];
+};
+
 export class HermesSearchProvider implements SearchProvider {
-  readonly name = "hermes-web-search-v2";
+  readonly name = "hermes-browser-search-v1";
   private readonly client = new HermesClient();
 
   async search({ query }: SearchRequest): Promise<SearchResultRecord[]> {
+    const urls = searchUrls(query);
     const system = [
-      "You are 0-1's bounded research retrieval agent.",
+      "You are 0-1's bounded live research retrieval agent.",
       "Do not answer from model memory.",
-      "First use web_search. Make at most two web_search attempts; if the first returns no results, simplify/rephrase once.",
-      "If web_search still returns no usable results, you MAY use browser navigation/snapshot tools only to access up to two likely live sources.",
-      "Do NOT use web_extract, terminal, file, code execution, skills, memory, delegation, cron, image, or any other tool.",
-      "If both search and browser fallback fail, immediately return {\"results\":[]}.",
-      "Return factual evidence only, not a probability and not a trading decision.",
+      "For this request, do NOT call web_search or web_extract.",
+      "Your first tool call MUST be browser_navigate using the first supplied search URL, followed by browser_snapshot.",
+      "If that search page is blocked, empty, or unusable, use browser_navigate on the second supplied search URL and browser_snapshot once.",
+      "From the search-results snapshot, choose at most two relevant source URLs. Navigate to each chosen source and inspect it with browser_snapshot.",
+      "Do not use terminal, file, code execution, skills, memory, delegation, cron, image, or any other tool.",
+      "Never make more than four browser_navigate calls total for this request.",
+      "Return factual evidence from pages actually visited, not a probability and not a trading decision.",
       "Prefer primary/official sources for PRIMARY queries and independent corroboration for other queries.",
-      "Honor includeDomains when provided: only return URLs whose hostname matches one of those domains or its subdomains.",
+      "Honor includeDomains when provided: only return source URLs whose hostname matches one of those domains or its subdomains.",
       "Return only JSON: {\"results\":[{\"title\":string,\"url\":string,\"content\":string,\"published_at\":string|null}]}",
-      "Every result URL must be a real URL returned by web_search or actually visited with the browser. Do not invent URLs.",
+      "Every returned URL must be a real source page you actually visited with browser_navigate. Do not return the search-results URL itself and do not invent URLs.",
+      "If browser retrieval fails, immediately return {\"results\":[]}.",
     ].join(" ");
 
     const user = JSON.stringify({
       intent: query.intent,
       query: query.query,
       includeDomains: query.includeDomains,
-      maxResults: query.maxResults,
+      maxResults: Math.min(query.maxResults, 2),
+      searchUrls: urls,
     });
 
     const parsed = parseHermesJson<HermesSearchResponse>(await this.client.chat(system, user));
     if (!parsed || !Array.isArray(parsed.results)) throw new Error("Hermes search JSON shape invalid");
     const observedAtMs = Date.now();
-    return parsed.results.slice(0, query.maxResults).flatMap((item) => {
+    return parsed.results.slice(0, Math.min(query.maxResults, 2)).flatMap((item) => {
       if (!item || typeof item.title !== "string" || typeof item.url !== "string" || typeof item.content !== "string") return [];
       let url: URL;
       try {
