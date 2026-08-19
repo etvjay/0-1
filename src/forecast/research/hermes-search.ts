@@ -20,21 +20,22 @@ const parsePublished = (value?: string | null): number | null => {
 };
 
 export class HermesSearchProvider implements SearchProvider {
-  readonly name = "hermes-web-search-v1";
+  readonly name = "hermes-web-search-v2";
   private readonly client = new HermesClient();
 
   async search({ query }: SearchRequest): Promise<SearchResultRecord[]> {
     const system = [
       "You are 0-1's bounded research retrieval agent.",
-      "Use web_search for this request and do not answer from model memory.",
-      "Do NOT use web_extract, terminal, file, browser, code execution, skills, memory, delegation, or any other tool as a fallback.",
-      "Make at most two web_search attempts. If the first query returns no results, simplify/rephrase it once and retry.",
-      "If both searches fail or return no usable results, immediately return {\"results\":[]}.",
-      "Return factual search-result evidence only, not a probability and not a trading decision.",
+      "Do not answer from model memory.",
+      "First use web_search. Make at most two web_search attempts; if the first returns no results, simplify/rephrase once.",
+      "If web_search still returns no usable results, you MAY use browser navigation/snapshot tools only to access up to two likely live sources.",
+      "Do NOT use web_extract, terminal, file, code execution, skills, memory, delegation, cron, image, or any other tool.",
+      "If both search and browser fallback fail, immediately return {\"results\":[]}.",
+      "Return factual evidence only, not a probability and not a trading decision.",
       "Prefer primary/official sources for PRIMARY queries and independent corroboration for other queries.",
       "Honor includeDomains when provided: only return URLs whose hostname matches one of those domains or its subdomains.",
       "Return only JSON: {\"results\":[{\"title\":string,\"url\":string,\"content\":string,\"published_at\":string|null}]}",
-      "Every result URL must be a real URL returned by web_search. Do not invent URLs.",
+      "Every result URL must be a real URL returned by web_search or actually visited with the browser. Do not invent URLs.",
     ].join(" ");
 
     const user = JSON.stringify({
