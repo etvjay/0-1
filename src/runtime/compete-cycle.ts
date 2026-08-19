@@ -1,5 +1,6 @@
 import { executeBoundedBuy } from "../execution/live-buy.js";
 import { getPortfolioSnapshot } from "../delphi/portfolio.js";
+import { sweepSettledPositions } from "../delphi/settlement.js";
 import { createResearchProviders } from "../forecast/research/providers.js";
 import { huntOpportunities } from "../hunt/orchestrator.js";
 import { sha256Json } from "../history/io.js";
@@ -35,6 +36,9 @@ export interface CompeteCycleResult {
   accountValueTst: number;
   collateralBalanceTst: number;
   markedPositionsTst: number;
+  redeemedMarkets: string[];
+  liquidatedMarkets: string[];
+  settlementFailures: number;
 }
 
 const pendingFromResult = (result: any, accountValue: number, marketExposure: number): PendingTradeState | null => {
@@ -82,6 +86,21 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
   await saveRuntimeState(statePath, state);
 
   const live = liveEnabled();
+  let redeemedMarkets: string[] = [];
+  let liquidatedMarkets: string[] = [];
+  let settlementFailures = 0;
+
+  if (live) {
+    try {
+      const sweep = await sweepSettledPositions();
+      redeemedMarkets = sweep.redeemedMarkets;
+      liquidatedMarkets = sweep.liquidatedMarkets;
+      settlementFailures = sweep.failures.length;
+    } catch {
+      settlementFailures = 1;
+    }
+  }
+
   let wallet: `0x${string}` | null = null;
   let accountValue = numberEnv("ZERO_ONE_HUNT_ACCOUNT_VALUE", 100);
   let collateralBalanceTst = accountValue;
@@ -118,6 +137,9 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
     accountValueTst: accountValue,
     collateralBalanceTst,
     markedPositionsTst,
+    redeemedMarkets,
+    liquidatedMarkets,
+    settlementFailures,
   };
 
   if (live) {
