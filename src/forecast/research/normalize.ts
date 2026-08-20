@@ -34,26 +34,50 @@ const normalizeText = (value: string): string => value
   .trim();
 
 const SPORTS_ENTITY_STOPWORDS = new Set(["fc", "fk", "afc", "cf", "sc", "club"]);
+const FOOTBALL_CONTEXT = ["football", "soccer", "uefa", "spfl", "premiership", "ibrox", "conference league", "europa", "champions league"];
+const BASEBALL_CONTEXT = ["mlb", "baseball", "american league", "major league baseball"];
 
-const participantTokens = (value: string): string[] => normalizeText(value)
-  .split(" ")
-  .filter((token) => token.length >= 3 && !SPORTS_ENTITY_STOPWORDS.has(token));
+interface SportsParticipant {
+  core: string[];
+  qualifiers: string[];
+}
 
-const sportsParticipants = (question: string): [string, string] | null => {
-  const match = question.match(/^\s*will\s+(.+?)\s+beat\s+(.+?)(?=\s+by\s+\d|\s+in\s+regulation|\s+in\s+their|\s+on\s+|\?|$)/i);
-  if (!match?.[1] || !match[2]) return null;
-  return [match[1].replace(/[()]/g, " "), match[2].replace(/[()]/g, " ")];
+const parseParticipant = (value: string): SportsParticipant => {
+  const qualifiers = [...value.matchAll(/\(([^)]+)\)/g)]
+    .flatMap((match) => normalizeText(match[1] ?? "").split(" "))
+    .filter((token) => token.length >= 3 && !SPORTS_ENTITY_STOPWORDS.has(token));
+
+  const withoutQualifiers = value.replace(/\([^)]+\)/g, " ");
+  const core = normalizeText(withoutQualifiers)
+    .split(" ")
+    .filter((token) => token.length >= 3 && !SPORTS_ENTITY_STOPWORDS.has(token));
+
+  return { core, qualifiers };
 };
 
-const mentionsParticipant = (text: string, participant: string): boolean => {
-  const tokens = participantTokens(participant);
-  if (tokens.length === 0) return false;
-  const normalized = ` ${normalizeText(text)} `;
+const sportsParticipants = (question: string): [SportsParticipant, SportsParticipant] | null => {
+  const match = question.match(/^\s*will\s+(.+?)\s+beat\s+(.+?)(?=\s+by\s+\d|\s+in\s+regulation|\s+in\s+their|\s+on\s+|\?|$)/i);
+  if (!match?.[1] || !match[2]) return null;
+  return [parseParticipant(match[1]), parseParticipant(match[2])];
+};
 
-  // Multi-token identities are intentionally conjunctive. A qualifier such as
-  // "Glasgow" in "Rangers (Glasgow)" exists to disambiguate the entity and
-  // must not be discarded, otherwise Texas Rangers/MLB pages become false hits.
-  return tokens.every((token) => normalized.includes(` ${token} `));
+const containsPhrase = (normalized: string, phrase: string): boolean => normalized.includes(` ${normalizeText(phrase)} `);
+const hasFootballContext = (normalized: string): boolean => FOOTBALL_CONTEXT.some((term) => containsPhrase(normalized, term));
+const hasBaseballContext = (normalized: string): boolean => BASEBALL_CONTEXT.some((term) => containsPhrase(normalized, term));
+
+const mentionsParticipant = (text: string, participant: SportsParticipant): boolean => {
+  if (participant.core.length === 0) return false;
+  const normalized = ` ${normalizeText(text)} `;
+  if (!participant.core.every((token) => normalized.includes(` ${token} `))) return false;
+
+  if (participant.qualifiers.length === 0) return true;
+  const qualifierMatch = participant.qualifiers.every((token) => normalized.includes(` ${token} `));
+  if (qualifierMatch) return true;
+
+  // Parenthetical labels such as Rangers (Glasgow) are disambiguators, not
+  // necessarily the literal naming used by every source. Football context can
+  // satisfy the qualifier, but explicit baseball context must never do so.
+  return hasFootballContext(normalized) && !hasBaseballContext(normalized);
 };
 
 const sportsRelevant = (result: SearchResultRecord, routing?: MarketRoutingDecision): boolean => {
@@ -65,8 +89,6 @@ const sportsRelevant = (result: SearchResultRecord, routing?: MarketRoutingDecis
   const left = mentionsParticipant(text, participants[0]);
   const right = mentionsParticipant(text, participants[1]);
 
-  // Match-specific evidence must identify both sides. Team-form/base-rate evidence
-  // may describe one side, but the side itself must pass the strong identity match.
   return result.queryIntent === "BASE_RATE" ? left || right : left && right;
 };
 
