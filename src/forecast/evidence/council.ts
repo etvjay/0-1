@@ -105,6 +105,16 @@ export function evaluateEvidenceCouncil(
     );
   }
 
+  const survivingRoles = new Set(normalized.map((item) => item.opinion.role));
+  const missingRoles = policy.requiredOpinionRoles.filter((role) => !survivingRoles.has(role));
+  if (missingRoles.length > 0) {
+    return refuse(
+      "MISSING_ROLES",
+      `Required opinion roles did not survive council validation: ${missingRoles.join(", ")}.`,
+      now,
+    );
+  }
+
   const independentGroups = new Set<string>();
   for (const item of normalized) for (const group of item.groups) independentGroups.add(group);
   if (independentGroups.size < policy.minIndependentSources) {
@@ -170,6 +180,7 @@ export const defaultEvidenceCouncilPolicy: EvidenceCouncilPolicy = {
   maxOpinionAgeMs: 30 * 60 * 1000,
   maxDisagreement: 0.22,
   minIndependentSources: 2,
+  requiredOpinionRoles: ["ADVOCATE", "OPPOSE"],
   maxResolutionAmbiguities: 1,
   marketPriorWeight: 0.75,
   opposeWeightMultiplier: 1.15,
