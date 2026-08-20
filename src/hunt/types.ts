@@ -38,6 +38,23 @@ export interface TriageCandidate {
   observedAtMs: number;
 }
 
+export type ForecastSource = "EVIDENCE_COUNCIL" | "CRYPTO_TERMINAL_RV";
+
+export interface OpportunityForecast {
+  source: ForecastSource;
+  marketId: HexAddress;
+  outcomeIndex: number;
+  probability: number;
+  confidence: number;
+  marketProbability: number;
+  method: string;
+  generatedAtMs: number;
+  expiresAtMs: number;
+  evidenceIds: string[];
+  rationale: string;
+  disagreement: number;
+}
+
 export interface ForecastSide {
   marketId: HexAddress;
   outcomeIndex: number;
@@ -64,6 +81,7 @@ export type HuntCandidateStatus =
 export interface HuntCandidateResult {
   candidate: TriageCandidate;
   status: HuntCandidateStatus;
+  forecast: OpportunityForecast | null;
   council: EvidenceCouncilResult | null;
   priorDrift: number | null;
   refreshedProbabilities: number[];
