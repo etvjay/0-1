@@ -60,25 +60,29 @@ export async function runAutonomousResearch(
       });
     }
   } else {
-    for (const role of roles) {
-      try {
-        opinions.push(await opinionProvider.forecast({
-          routing,
-          outcomeIndex,
-          outcomeLabel,
-          marketProbability,
-          role,
-          evidence,
-          nowMs,
-        }));
-      } catch (error) {
+    const opinionSettled = await Promise.allSettled(roles.map((role) => opinionProvider.forecast({
+      routing,
+      outcomeIndex,
+      outcomeLabel,
+      marketProbability,
+      role,
+      evidence,
+      nowMs,
+    })));
+
+    opinionSettled.forEach((result, index) => {
+      const role = roles[index];
+      if (!role) return;
+      if (result.status === "fulfilled") {
+        opinions.push(result.value);
+      } else {
         opinionFailures.push({
           role,
           provider: opinionProvider.name,
-          error: error instanceof Error ? error.message : String(error),
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
         });
       }
-    }
+    });
   }
 
   const bundle: EvidenceForecastBundle = {
