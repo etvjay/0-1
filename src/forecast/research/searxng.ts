@@ -12,6 +12,12 @@ interface SearxngItem {
 
 interface SearxngResponse {
   results?: unknown;
+  unresponsive_engines?: unknown;
+}
+
+interface SearxngFetchResult {
+  items: SearxngItem[];
+  unresponsive: string[];
 }
 
 const parsePublished = (value: unknown): number | null => {
@@ -45,18 +51,30 @@ const fallbackSearchQuery = (value: string): string => {
   return selected.slice(0, 18).join(" ");
 };
 
+const normalizeUnresponsive = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!Array.isArray(entry) || entry.length === 0) return [];
+    const engine = typeof entry[0] === "string" ? entry[0] : "unknown";
+    const reason = typeof entry[1] === "string" ? entry[1] : "unresponsive";
+    return [`${engine}: ${reason}`];
+  });
+};
+
 export class SearxngSearchProvider implements SearchProvider {
-  readonly name = "searxng-local-v2";
+  readonly name = "searxng-local-v3";
 
   constructor(
     private readonly baseUrl = process.env.SEARXNG_URL ?? "http://127.0.0.1:8888",
     private readonly timeoutMs = Number(process.env.ZERO_ONE_SEARXNG_TIMEOUT_MS ?? 10_000),
+    private readonly categories = process.env.ZERO_ONE_SEARXNG_CATEGORIES ?? "general,news",
   ) {}
 
-  private async fetchItems(searchQuery: string): Promise<SearxngItem[]> {
+  private async fetchItems(searchQuery: string): Promise<SearxngFetchResult> {
     const endpoint = new URL("/search", this.baseUrl.replace(/\/$/, ""));
     endpoint.searchParams.set("q", searchQuery);
     endpoint.searchParams.set("format", "json");
+    endpoint.searchParams.set("categories", this.categories);
 
     const response = await fetch(endpoint, {
       headers: { Accept: "application/json" },
@@ -66,7 +84,10 @@ export class SearxngSearchProvider implements SearchProvider {
 
     const payload = await response.json() as SearxngResponse;
     if (!Array.isArray(payload.results)) throw new Error("SearXNG response JSON shape invalid");
-    return payload.results as SearxngItem[];
+    return {
+      items: payload.results as SearxngItem[],
+      unresponsive: normalizeUnresponsive(payload.unresponsive_engines),
+    };
   }
 
   private toRecords(items: SearxngItem[], query: ResearchQuery, observedAtMs: number): SearchResultRecord[] {
@@ -112,15 +133,23 @@ export class SearxngSearchProvider implements SearchProvider {
 
   async search({ query }: SearchRequest): Promise<SearchResultRecord[]> {
     const observedAtMs = Date.now();
-    const primary = this.toRecords(await this.fetchItems(query.query), query, observedAtMs);
+    const primaryFetch = await this.fetchItems(query.query);
+    const primary = this.toRecords(primaryFetch.items, query, observedAtMs);
     if (primary.length > 0) return primary;
 
     const fallback = fallbackSearchQuery(query.query);
+    let fallbackFetch: SearxngFetchResult | null = null;
     if (fallback && fallback !== query.query) {
-      const retried = this.toRecords(await this.fetchItems(fallback), query, observedAtMs);
+      fallbackFetch = await this.fetchItems(fallback);
+      const retried = this.toRecords(fallbackFetch.items, query, observedAtMs);
       if (retried.length > 0) return retried;
     }
 
-    throw new Error(`SearXNG returned no usable results for ${query.intent} after bounded fallback`);
+    const blockers = [...new Set([
+      ...primaryFetch.unresponsive,
+      ...(fallbackFetch?.unresponsive ?? []),
+    ])];
+    const detail = blockers.length > 0 ? `; upstream=${blockers.join(" | ")}` : "";
+    throw new Error(`SearXNG returned no usable results for ${query.intent} after bounded fallback${detail}`);
   }
 }
