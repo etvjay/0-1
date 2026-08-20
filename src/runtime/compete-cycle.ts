@@ -36,6 +36,8 @@ export interface CompeteCycleResult {
   accountValueTst: number;
   collateralBalanceTst: number;
   markedPositionsTst: number;
+  cashReserveTst: number;
+  deployableCashTst: number;
   redeemedMarkets: string[];
   liquidatedMarkets: string[];
   settlementFailures: number;
@@ -119,7 +121,9 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
     if (live) throw error;
   }
 
-  const cycleBudgetTst = Math.min(numberEnv("ZERO_ONE_MAX_CYCLE_TST", 20), Math.max(0, collateralBalanceTst));
+  const cashReserveTst = Math.max(0, numberEnv("ZERO_ONE_CASH_RESERVE_TST", 0));
+  const deployableCashTst = Math.max(0, collateralBalanceTst - cashReserveTst);
+  const cycleBudgetTst = Math.min(numberEnv("ZERO_ONE_MAX_CYCLE_TST", 20), deployableCashTst);
   const cooldownMs = numberEnv("ZERO_ONE_MARKET_COOLDOWN_MS", 30 * 60 * 1000);
   const retryDelayMs = numberEnv("ZERO_ONE_PENDING_RETRY_MS", 30_000);
 
@@ -137,6 +141,8 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
     accountValueTst: accountValue,
     collateralBalanceTst,
     markedPositionsTst,
+    cashReserveTst,
+    deployableCashTst,
     redeemedMarkets,
     liquidatedMarkets,
     settlementFailures,
@@ -159,6 +165,9 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
       result.attempted += 1;
       try {
         const receipt = await tryPending(pending);
+        if (result.spentEstimateTst + receipt.quotedCost > cycleBudgetTst) {
+          throw new Error(`Fresh quoted cost would exceed cycle/deployable cash budget ${cycleBudgetTst.toFixed(6)} TST.`);
+        }
         result.executed += 1;
         result.spentEstimateTst += receipt.quotedCost;
         result.transactions.push(receipt.transactionHash);
@@ -222,6 +231,9 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
       result.attempted += 1;
       try {
         const receipt = await tryPending(pending);
+        if (result.spentEstimateTst + receipt.quotedCost > cycleBudgetTst) {
+          throw new Error(`Fresh quoted cost would exceed cycle/deployable cash budget ${cycleBudgetTst.toFixed(6)} TST.`);
+        }
         result.executed += 1;
         result.spentEstimateTst += receipt.quotedCost;
         result.transactions.push(receipt.transactionHash);
