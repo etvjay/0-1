@@ -68,7 +68,7 @@ const pendingFromResult = (result: any, accountValue: number, marketExposure: nu
   };
 };
 
-const tryPending = async (pending: PendingTradeState) => executeBoundedBuy({
+const tryPending = async (pending: PendingTradeState, maxSpendTst: number) => executeBoundedBuy({
   marketId: pending.marketId,
   outcomeIndex: pending.outcomeIndex,
   shares: pending.shares,
@@ -79,6 +79,7 @@ const tryPending = async (pending: PendingTradeState) => executeBoundedBuy({
   beliefCreatedAtMs: pending.beliefCreatedAtMs,
   beliefExpiresAtMs: pending.beliefExpiresAtMs,
   method: pending.method,
+  maxSpendTst,
 });
 
 export async function runCompeteCycle(): Promise<CompeteCycleResult> {
@@ -157,17 +158,15 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
         continue;
       }
       if (pending.lastAttemptAtMs && Date.now() - pending.lastAttemptAtMs < retryDelayMs) continue;
-      if (result.spentEstimateTst >= cycleBudgetTst) break;
+      const remainingBudgetTst = cycleBudgetTst - result.spentEstimateTst;
+      if (remainingBudgetTst <= 0) break;
 
       pending.attempts += 1;
       pending.lastAttemptAtMs = Date.now();
       await saveRuntimeState(statePath, state);
       result.attempted += 1;
       try {
-        const receipt = await tryPending(pending);
-        if (result.spentEstimateTst + receipt.quotedCost > cycleBudgetTst) {
-          throw new Error(`Fresh quoted cost would exceed cycle/deployable cash budget ${cycleBudgetTst.toFixed(6)} TST.`);
-        }
+        const receipt = await tryPending(pending, remainingBudgetTst);
         result.executed += 1;
         result.spentEstimateTst += receipt.quotedCost;
         result.transactions.push(receipt.transactionHash);
@@ -219,7 +218,8 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
         continue;
       }
       const estimatedCost = proposal.quotedCost ?? 0;
-      if (estimatedCost <= 0 || result.spentEstimateTst + estimatedCost > cycleBudgetTst) continue;
+      const remainingBudgetTst = cycleBudgetTst - result.spentEstimateTst;
+      if (estimatedCost <= 0 || remainingBudgetTst <= 0 || estimatedCost > remainingBudgetTst) continue;
 
       state.pendingTrades[key] = pending;
       result.enqueued += 1;
@@ -230,10 +230,7 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
       await saveRuntimeState(statePath, state);
       result.attempted += 1;
       try {
-        const receipt = await tryPending(pending);
-        if (result.spentEstimateTst + receipt.quotedCost > cycleBudgetTst) {
-          throw new Error(`Fresh quoted cost would exceed cycle/deployable cash budget ${cycleBudgetTst.toFixed(6)} TST.`);
-        }
+        const receipt = await tryPending(pending, remainingBudgetTst);
         result.executed += 1;
         result.spentEstimateTst += receipt.quotedCost;
         result.transactions.push(receipt.transactionHash);
