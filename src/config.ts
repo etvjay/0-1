@@ -18,7 +18,12 @@ export const tradePolicy: TradePolicy = {
   maxPriceImpact: numberEnv("ZERO_ONE_MAX_PRICE_IMPACT", 0.08),
 };
 
-export const quoteSizes = (process.env.ZERO_ONE_QUOTE_SIZES ?? "0.1,0.25,0.5,0.75,1")
+// Competition LMSR markets can price a share anywhere from a few cents to
+// nearly one token. A one-share ceiling therefore under-deploys capital on
+// cheap, high-edge outcomes. Quote a wider ladder and let deterministic
+// execution-edge, price-impact, exposure, and max-order caps reject sizes that
+// are too aggressive for a particular market.
+export const quoteSizes = (process.env.ZERO_ONE_QUOTE_SIZES ?? "0.1,0.25,0.5,0.75,1,2,3,5,8,12,16,24")
   .split(",")
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isFinite(value) && value > 0)
