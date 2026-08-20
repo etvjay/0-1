@@ -4,6 +4,14 @@ import { evaluateTrade } from "../domain/evaluate.js";
 import { quoteLadder } from "../delphi/quotes.js";
 import type { ForecastSide, OpportunityForecast, SideOpportunityEvaluation, TriageCandidate } from "./types.js";
 
+const numberEnv = (name: string, fallback: number): number => {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be numeric`);
+  return parsed;
+};
+
 export function forecastSides(
   candidate: TriageCandidate,
   forecast: OpportunityForecast,
@@ -78,8 +86,16 @@ export async function evaluateForecastSide(
   };
   const portfolio: PortfolioState = { accountValue, marketExposure };
   const ladder = await quoteLadder(side.marketId, side.outcomeIndex, quoteSizes);
+  const maxOrderTst = numberEnv("ZERO_ONE_MAX_ORDER_TST", 5);
   const evaluations = ladder.map((quote) => {
     if ("error" in quote) return { status: "QUOTE_FAILED" as const, shares: quote.shares, error: quote.error };
+    if (quote.tokensIn > maxOrderTst) {
+      return {
+        status: "QUOTE_FAILED" as const,
+        shares: quote.shares,
+        error: `Quoted cost ${quote.tokensIn.toFixed(6)} TST exceeds ZERO_ONE_MAX_ORDER_TST=${maxOrderTst}.`,
+      };
+    }
     return evaluateTrade(snapshot, belief, quote, portfolio, tradePolicy, Date.now());
   });
   const proposals = evaluations.filter((item): item is TradeProposal => item.status === "PROPOSED");
