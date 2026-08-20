@@ -92,13 +92,42 @@ const normalizeUnresponsive = (value: unknown): string[] => {
   });
 };
 
+const decodeEntities = (value: string): string => value
+  .replace(/&nbsp;/gi, " ")
+  .replace(/&amp;/gi, "&")
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;|&apos;/gi, "'")
+  .replace(/&lt;/gi, "<")
+  .replace(/&gt;/gi, ">")
+  .replace(/&#(\d+);/g, (_match, code: string) => {
+    const parsed = Number(code);
+    return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : " ";
+  });
+
+export const extractPageText = (html: string, maxChars = 12_000): string => {
+  const cleaned = html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(script|style|noscript|svg|template)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|h[1-6]|section|article|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  return decodeEntities(cleaned)
+    .replace(/[\t\r ]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, maxChars);
+};
+
 export class SearxngSearchProvider implements SearchProvider {
-  readonly name = "searxng-local-v4";
+  readonly name = "searxng-local-v5";
 
   constructor(
     private readonly baseUrl = process.env.SEARXNG_URL ?? "http://127.0.0.1:8888",
     private readonly timeoutMs = Number(process.env.ZERO_ONE_SEARXNG_TIMEOUT_MS ?? 10_000),
     private readonly categories = process.env.ZERO_ONE_SEARXNG_CATEGORIES ?? "general,news",
+    private readonly pageTimeoutMs = Number(process.env.ZERO_ONE_PAGE_FETCH_TIMEOUT_MS ?? 6_000),
+    private readonly enrichCount = Number(process.env.ZERO_ONE_PAGE_ENRICH_COUNT ?? 2),
   ) {}
 
   private async fetchItems(searchQuery: string): Promise<SearxngFetchResult> {
@@ -167,18 +196,63 @@ export class SearxngSearchProvider implements SearchProvider {
     return records;
   }
 
+  private async fetchPageText(url: string): Promise<string | null> {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: "text/html,application/xhtml+xml",
+          "User-Agent": "Mozilla/5.0 (compatible; 0-1-research/1.0)",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(Number.isFinite(this.pageTimeoutMs) ? this.pageTimeoutMs : 6_000),
+      });
+      if (!response.ok) return null;
+      const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+      if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) return null;
+      const html = await response.text();
+      const text = extractPageText(html);
+      return text.length >= 120 ? text : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async enrichRecords(records: SearchResultRecord[]): Promise<SearchResultRecord[]> {
+    const count = Number.isFinite(this.enrichCount) ? Math.max(0, Math.min(records.length, Math.floor(this.enrichCount))) : 2;
+    if (count === 0) return records;
+
+    const pages = await Promise.all(records.slice(0, count).map((record) => this.fetchPageText(record.url)));
+    return records.map((record, index) => {
+      const page = index < count ? pages[index] : null;
+      if (!page) return record;
+      const content = `${record.content}\n\nPAGE_TEXT:\n${page}`;
+      const base = {
+        queryId: record.queryId,
+        queryIntent: record.queryIntent,
+        provider: record.provider,
+        title: record.title,
+        url: record.url,
+        content,
+        score: record.score,
+        publishedAtMs: record.publishedAtMs,
+        observedAtMs: record.observedAtMs,
+      };
+      return { schemaVersion: "0-1.search-result.v1" as const, id: sha256Json(base), ...base };
+    });
+  }
+
   async search({ query }: SearchRequest): Promise<SearchResultRecord[]> {
     const observedAtMs = Date.now();
     const primaryFetch = await this.fetchItems(query.query);
     const primary = this.toRecords(primaryFetch.items, query, observedAtMs);
-    if (primary.length > 0) return primary;
+    if (primary.length > 0) return this.enrichRecords(primary);
 
     const fallback = fallbackSearchQuery(query.query);
     let fallbackFetch: SearxngFetchResult | null = null;
     if (fallback && fallback !== query.query) {
       fallbackFetch = await this.fetchItems(fallback);
       const retried = this.toRecords(fallbackFetch.items, query, observedAtMs);
-      if (retried.length > 0) return retried;
+      if (retried.length > 0) return this.enrichRecords(retried);
     }
 
     const blockers = [...new Set([
