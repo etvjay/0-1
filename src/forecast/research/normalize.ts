@@ -49,7 +49,11 @@ const mentionsParticipant = (text: string, participant: string): boolean => {
   const tokens = participantTokens(participant);
   if (tokens.length === 0) return false;
   const normalized = ` ${normalizeText(text)} `;
-  return tokens.some((token) => normalized.includes(` ${token} `));
+
+  // Multi-token identities are intentionally conjunctive. A qualifier such as
+  // "Glasgow" in "Rangers (Glasgow)" exists to disambiguate the entity and
+  // must not be discarded, otherwise Texas Rangers/MLB pages become false hits.
+  return tokens.every((token) => normalized.includes(` ${token} `));
 };
 
 const sportsRelevant = (result: SearchResultRecord, routing?: MarketRoutingDecision): boolean => {
@@ -62,7 +66,7 @@ const sportsRelevant = (result: SearchResultRecord, routing?: MarketRoutingDecis
   const right = mentionsParticipant(text, participants[1]);
 
   // Match-specific evidence must identify both sides. Team-form/base-rate evidence
-  // may legitimately describe one participant in isolation.
+  // may describe one side, but the side itself must pass the strong identity match.
   return result.queryIntent === "BASE_RATE" ? left || right : left && right;
 };
 
