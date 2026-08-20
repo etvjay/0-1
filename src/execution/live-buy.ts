@@ -23,6 +23,7 @@ export interface LiveBuyInput {
   beliefCreatedAtMs?: number;
   beliefExpiresAtMs?: number;
   method?: string;
+  maxSpendTst?: number;
 }
 
 export interface LiveBuyReceipt {
@@ -62,8 +63,12 @@ export async function executeBoundedBuy(input: LiveBuyInput): Promise<LiveBuyRec
   if (!Number.isFinite(input.shares) || input.shares <= 0) throw new Error("shares must be positive");
   if (!Number.isFinite(input.probability) || input.probability < 0 || input.probability > 1) throw new Error("probability must be in [0,1]");
   if (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) throw new Error("confidence must be in [0,1]");
+  if (input.maxSpendTst !== undefined && (!Number.isFinite(input.maxSpendTst) || input.maxSpendTst <= 0)) {
+    throw new Error("maxSpendTst must be positive when provided");
+  }
 
   const maxOrderTst = numberEnv("ZERO_ONE_MAX_ORDER_TST", 5);
+  const effectiveSpendCap = Math.min(maxOrderTst, input.maxSpendTst ?? maxOrderTst);
   const slippageBps = numberEnv("ZERO_ONE_SLIPPAGE_BPS", 200);
   const maxPriorDrift = numberEnv("ZERO_ONE_HUNT_MAX_PRIOR_DRIFT", 0.08);
   const sharesOut = sharesToBigint(input.shares);
@@ -79,7 +84,9 @@ export async function executeBoundedBuy(input: LiveBuyInput): Promise<LiveBuyRec
 
   const firstQuote = await delphi.quoteBuy({ marketAddress: input.marketId, outcomeIdx: input.outcomeIndex, sharesOut });
   const firstCost = collateralToNumber(firstQuote.tokensIn);
-  if (firstCost > maxOrderTst) throw new Error(`Quoted cost ${firstCost.toFixed(6)} TST exceeds ZERO_ONE_MAX_ORDER_TST=${maxOrderTst}.`);
+  if (firstCost > effectiveSpendCap) {
+    throw new Error(`Quoted cost ${firstCost.toFixed(6)} TST exceeds effective spend cap ${effectiveSpendCap.toFixed(6)} TST.`);
+  }
   await delphi.ensureTokenApproval({ marketAddress: input.marketId, minimumAmount: slippageCap(firstQuote.tokensIn, slippageBps) });
 
   const market = await delphi.getMarket({ id: input.marketId, pricesAndImpliedProbabilities: true, ...competitionScope });
@@ -94,7 +101,9 @@ export async function executeBoundedBuy(input: LiveBuyInput): Promise<LiveBuyRec
 
   const secondQuote = await delphi.quoteBuy({ marketAddress: input.marketId, outcomeIdx: input.outcomeIndex, sharesOut });
   const quotedCost = collateralToNumber(secondQuote.tokensIn);
-  if (quotedCost > maxOrderTst) throw new Error(`Fresh quoted cost ${quotedCost.toFixed(6)} TST exceeds ZERO_ONE_MAX_ORDER_TST=${maxOrderTst}.`);
+  if (quotedCost > effectiveSpendCap) {
+    throw new Error(`Fresh quoted cost ${quotedCost.toFixed(6)} TST exceeds effective spend cap ${effectiveSpendCap.toFixed(6)} TST.`);
+  }
   const quote: QuoteObservation = { shares: input.shares, tokensIn: quotedCost, averagePrice: quotedCost / input.shares, quotedAt: Date.now() };
   const snapshot: MarketSnapshot = {
     marketId: input.marketId,
