@@ -9,14 +9,22 @@ const searchSubject = (question: string): string => {
   return subject.length <= 220 ? subject : `${subject.slice(0, 217).trimEnd()}...`;
 };
 
-const sportsSearchSubject = (question: string): string => {
-  const subject = clean(question)
-    .replace(/^will\s+/i, "")
-    .replace(/\(([^)]+)\)/g, " $1 ")
-    .replace(/\bby\s+\d+(?:\.\d+)?\+\b/gi, " ")
-    .replace(/\bin regulation\b/gi, " ")
-    .replace(/[?]+$/, "");
-  return clean(subject);
+interface SportsEntities {
+  left: string;
+  right: string;
+  date: string;
+}
+
+const sportsEntities = (question: string): SportsEntities | null => {
+  const match = question.match(/^\s*will\s+(.+?)\s+beat\s+(.+?)(?=\s+by\s+\d|\s+in\s+regulation|\s+in\s+their|\s+on\s+|\?|$)/i);
+  if (!match?.[1] || !match[2]) return null;
+
+  const dateMatch = question.match(/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b/i);
+  return {
+    left: clean(match[1].replace(/[()]/g, " ")),
+    right: clean(match[2].replace(/[()]/g, " ")),
+    date: dateMatch?.[0] ?? "",
+  };
 };
 
 const sourceDomains = (routing: MarketRoutingDecision): string[] => {
@@ -53,20 +61,25 @@ export function buildResearchPlan(
   const officialDomains = sourceDomains(routing);
 
   if (classification.domain === "SPORTS") {
-    const subject = sportsSearchSubject(resolution.question);
-    const queries: ResearchQuery[] = [
-      make("PRIMARY", `${subject} official fixture score`, officialDomains, 4),
-      make("CORROBORATE", `${subject} preview team news lineup injuries`, [], 4),
-      make("OPPOSE", `${subject} recent form results odds preview`, [], 4),
-      make("BASE_RATE", `${subject} recent results goal margin`, [], 4),
-    ];
-    return {
-      schemaVersion: "0-1.research-plan.v1",
-      generatedAtMs: nowMs,
-      marketId: resolution.marketId,
-      outcomeIndex,
-      queries,
-    };
+    const entities = sportsEntities(resolution.question);
+    if (entities) {
+      const fixture = clean(`${entities.left} ${entities.right} ${entities.date}`);
+      const queries: ResearchQuery[] = [
+        make("PRIMARY", `${fixture} official fixture score`, officialDomains, 4),
+        make("CORROBORATE", `${fixture} football preview odds lineup injuries`, [], 4),
+        make("CORROBORATE", `${entities.left} football team news injuries lineup`, [], 3),
+        make("OPPOSE", `${entities.right} football team news recent form results`, [], 3),
+        make("BASE_RATE", `${entities.left} football recent results goal margin`, [], 4),
+        make("BASE_RATE", `${entities.right} football recent results goal margin`, [], 4),
+      ];
+      return {
+        schemaVersion: "0-1.research-plan.v1",
+        generatedAtMs: nowMs,
+        marketId: resolution.marketId,
+        outcomeIndex,
+        queries,
+      };
+    }
   }
 
   const subject = searchSubject(resolution.question);
