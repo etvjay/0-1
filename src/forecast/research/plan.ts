@@ -6,9 +6,17 @@ const clean = (value: string) => value.replace(/\s+/g, " ").trim();
 
 const searchSubject = (question: string): string => {
   const subject = clean(question).replace(/[?]+$/, "");
-  // DDGS is much more reliable with natural, unquoted queries than with the
-  // full resolution proposition plus boolean-style search boilerplate.
   return subject.length <= 220 ? subject : `${subject.slice(0, 217).trimEnd()}...`;
+};
+
+const sportsSearchSubject = (question: string): string => {
+  const subject = clean(question)
+    .replace(/^will\s+/i, "")
+    .replace(/\(([^)]+)\)/g, " $1 ")
+    .replace(/\bby\s+\d+(?:\.\d+)?\+\b/gi, " ")
+    .replace(/\bin regulation\b/gi, " ")
+    .replace(/[?]+$/, "");
+  return clean(subject);
 };
 
 const sourceDomains = (routing: MarketRoutingDecision): string[] => {
@@ -43,9 +51,26 @@ export function buildResearchPlan(
   const { resolution, classification } = routing;
   const outcome = clean(resolution.outcomes[outcomeIndex] ?? `outcome ${outcomeIndex}`);
   const officialDomains = sourceDomains(routing);
+
+  if (classification.domain === "SPORTS") {
+    const subject = sportsSearchSubject(resolution.question);
+    const queries: ResearchQuery[] = [
+      make("PRIMARY", `${subject} official fixture score`, officialDomains, 4),
+      make("CORROBORATE", `${subject} preview team news lineup injuries`, [], 4),
+      make("OPPOSE", `${subject} recent form results odds preview`, [], 4),
+      make("BASE_RATE", `${subject} recent results goal margin`, [], 4),
+    ];
+    return {
+      schemaVersion: "0-1.research-plan.v1",
+      generatedAtMs: nowMs,
+      marketId: resolution.marketId,
+      outcomeIndex,
+      queries,
+    };
+  }
+
   const subject = searchSubject(resolution.question);
   const primaryQuery = officialDomains.length > 0 ? subject : `${subject} official`;
-
   const queries: ResearchQuery[] = [
     make("PRIMARY", primaryQuery, officialDomains, 4),
     make("CORROBORATE", `${subject} ${outcome} latest`, [], 4),
@@ -55,8 +80,6 @@ export function buildResearchPlan(
 
   if (classification.domain === "POLITICS") {
     queries.push(make("CORROBORATE", `${subject} latest polls polling average`, [], 4));
-  } else if (classification.domain === "SPORTS") {
-    queries.push(make("PRIMARY", `${subject} official score lineup injury`, officialDomains, 4));
   } else if (classification.domain === "ECONOMICS") {
     queries.push(make("PRIMARY", `${subject} official release data`, officialDomains, 4));
   }
