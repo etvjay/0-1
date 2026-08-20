@@ -126,10 +126,22 @@ test("refuses excessive disagreement", () => {
   assert.equal(result.code, "EXCESSIVE_DISAGREEMENT");
 });
 
+test("refuses when one required adversarial role is missing", () => {
+  const bundle = baseBundle();
+  bundle.opinions = [bundle.opinions[0]!];
+  const result = evaluateEvidenceCouncil(bundle, defaultEvidenceCouncilPolicy, now);
+  assert.equal(result.status, "REFUSED");
+  if (result.status !== "REFUSED") return;
+  assert.equal(result.code, "MISSING_ROLES");
+});
+
 test("refuses when only one independent evidence group survives", () => {
   const bundle = baseBundle();
   bundle.evidence = bundle.evidence.filter((item) => item.independenceGroup === "pollster-a");
-  bundle.opinions = [{ ...bundle.opinions[0]!, evidenceIds: ["poll-a"] }];
+  bundle.opinions = [
+    { ...bundle.opinions[0]!, evidenceIds: ["poll-a"] },
+    { ...bundle.opinions[1]!, evidenceIds: ["poll-a"] },
+  ];
   const result = evaluateEvidenceCouncil(bundle, defaultEvidenceCouncilPolicy, now);
   assert.equal(result.status, "REFUSED");
   if (result.status !== "REFUSED") return;
