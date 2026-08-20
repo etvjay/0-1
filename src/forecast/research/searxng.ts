@@ -39,6 +39,37 @@ const SEARCH_STOPWORDS = new Set([
   "a", "an", "and", "are", "at", "be", "by", "for", "from", "in", "is", "it", "of", "on", "or", "the", "their", "to", "will", "with",
 ]);
 
+const normalizeText = (value: string): string => value
+  .normalize("NFKD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const queryTokens = (query: string): string[] => normalizeText(query)
+  .split(" ")
+  .filter((token) => token.length >= 3 && !SEARCH_STOPWORDS.has(token));
+
+const quotedPhrases = (query: string): string[] => [...query.matchAll(/"([^"]+)"/g)]
+  .map((match) => normalizeText(match[1] ?? ""))
+  .filter(Boolean);
+
+const relevanceScore = (item: SearxngItem, query: ResearchQuery): number => {
+  const title = typeof item.title === "string" ? item.title : "";
+  const content = typeof item.content === "string" ? item.content : "";
+  const text = ` ${normalizeText(`${title} ${content}`)} `;
+  const tokens = queryTokens(query.query);
+  const phrases = quotedPhrases(query.query);
+
+  const tokenHits = tokens.reduce((sum, token) => sum + (text.includes(` ${token} `) ? 1 : 0), 0);
+  const tokenCoverage = tokens.length > 0 ? tokenHits / tokens.length : 0;
+  const phraseHits = phrases.reduce((sum, phrase) => sum + (text.includes(` ${phrase} `) ? 1 : 0), 0);
+  const engineScore = typeof item.score === "number" && Number.isFinite(item.score) ? Math.max(0, item.score) : 0;
+
+  return phraseHits * 3 + tokenCoverage * 2 + Math.min(1, engineScore) * 0.5;
+};
+
 const fallbackSearchQuery = (value: string): string => {
   const tokens = value
     .replace(/[?"'()[\]{}:,;]+/g, " ")
@@ -62,7 +93,7 @@ const normalizeUnresponsive = (value: unknown): string[] => {
 };
 
 export class SearxngSearchProvider implements SearchProvider {
-  readonly name = "searxng-local-v3";
+  readonly name = "searxng-local-v4";
 
   constructor(
     private readonly baseUrl = process.env.SEARXNG_URL ?? "http://127.0.0.1:8888",
@@ -92,10 +123,9 @@ export class SearxngSearchProvider implements SearchProvider {
 
   private toRecords(items: SearxngItem[], query: ResearchQuery, observedAtMs: number): SearchResultRecord[] {
     const maxResults = Math.max(0, Math.min(query.maxResults, 8));
-    const records: SearchResultRecord[] = [];
+    const candidates: Array<{ raw: SearxngItem; url: URL; rank: number }> = [];
 
-    for (const raw of items) {
-      if (records.length >= maxResults) break;
+    for (const raw of items.slice(0, 40)) {
       if (!raw || typeof raw.title !== "string" || typeof raw.url !== "string") continue;
 
       let url: URL;
@@ -106,12 +136,18 @@ export class SearxngSearchProvider implements SearchProvider {
       }
       if (url.protocol !== "https:" && url.protocol !== "http:") continue;
       if (!matchesDomain(url, query.includeDomains)) continue;
+      if (!raw.title.trim()) continue;
 
-      const title = raw.title.trim();
-      if (!title) continue;
+      candidates.push({ raw, url, rank: relevanceScore(raw, query) });
+    }
+
+    candidates.sort((a, b) => b.rank - a.rank);
+    const records: SearchResultRecord[] = [];
+
+    for (const { raw, url } of candidates.slice(0, maxResults)) {
+      const title = (raw.title as string).trim();
       const snippet = typeof raw.content === "string" ? raw.content.trim() : "";
       const content = snippet || `Search result title: ${title}`;
-
       const score = typeof raw.score === "number" && Number.isFinite(raw.score) ? raw.score : null;
       const publishedAtMs = parsePublished(raw.publishedDate ?? raw.published_date);
       const base = {
