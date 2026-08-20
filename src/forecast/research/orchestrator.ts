@@ -44,7 +44,7 @@ export async function runAutonomousResearch(
       error: result.reason instanceof Error ? result.reason.message : String(result.reason),
     }];
   });
-  const evidence = normalizeSearchEvidence(searchResults, nowMs);
+  const evidence = normalizeSearchEvidence(searchResults, nowMs, 12 * 60 * 60 * 1000, routing);
   const outcomeLabel = routing.resolution.outcomes[outcomeIndex] ?? `outcome ${outcomeIndex}`;
 
   const roles = ["ADVOCATE", "OPPOSE"] as const;
