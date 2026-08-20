@@ -93,11 +93,41 @@ export async function buildTriageUniverse(limit = 100): Promise<{ openMarkets: n
 }
 
 export function selectResearchCandidates(candidates: TriageCandidate[], budget: number): TriageCandidate[] {
+  const limit = Math.max(0, budget);
+  if (limit === 0) return [];
+
+  const ranked = rankTriage(candidates);
   const bestByMarket = new Map<string, TriageCandidate>();
-  for (const candidate of rankTriage(candidates)) {
+  for (const candidate of ranked) {
     if (!bestByMarket.has(candidate.marketId)) bestByMarket.set(candidate.marketId, candidate);
   }
-  return [...bestByMarket.values()].slice(0, Math.max(0, budget));
+  const marketCandidates = [...bestByMarket.values()];
+
+  // Competition mode needs breadth across independently forecastable market
+  // structures. Reserve the first pass for distinct archetypes, then fill all
+  // remaining capacity by raw triage score. This avoids several nearby sports
+  // fixtures starving crypto/macro/politics/culture candidates from evaluation.
+  const selected: TriageCandidate[] = [];
+  const selectedMarkets = new Set<string>();
+  const seenArchetypes = new Set<string>();
+
+  for (const candidate of marketCandidates) {
+    if (selected.length >= limit) break;
+    const archetype = candidate.routing.classification.archetype;
+    if (seenArchetypes.has(archetype)) continue;
+    selected.push(candidate);
+    selectedMarkets.add(candidate.marketId);
+    seenArchetypes.add(archetype);
+  }
+
+  for (const candidate of marketCandidates) {
+    if (selected.length >= limit) break;
+    if (selectedMarkets.has(candidate.marketId)) continue;
+    selected.push(candidate);
+    selectedMarkets.add(candidate.marketId);
+  }
+
+  return selected;
 }
 
 export async function huntOpportunities(
