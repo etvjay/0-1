@@ -41,6 +41,52 @@ test("normalizer deduplicates same publisher/title into one independence group",
   assert.equal(evidence[0]?.independenceGroup, "news.example.com");
 });
 
+test("sports normalizer rejects ambiguous Rangers baseball results", () => {
+  const sportsRouting = routeMarket({
+    marketId: "0xdef",
+    question: "Will Rangers (Glasgow) beat FK Jablonec by 2+ in regulation in their Conference League play-off first leg Aug 20, 2026?",
+    outcomes: ["Yes", "No"],
+    category: "sports",
+    resolvesAt: "2026-08-20T23:00:00Z",
+    settlesAt: "2026-08-21T00:00:00Z",
+    dataSources: ["https://www.espn.com/"],
+  });
+
+  const rows = [
+    {
+      schemaVersion: "0-1.search-result.v1" as const,
+      id: "texas",
+      queryId: "q1",
+      queryIntent: "PRIMARY" as const,
+      provider: "mock",
+      title: "Texas Rangers Scores, Stats and Highlights - ESPN",
+      url: "https://www.espn.com/mlb/team/_/name/tex/texas-rangers",
+      content: "Visit ESPN for Texas Rangers live scores and the MLB schedule.",
+      score: 0.9,
+      publishedAtMs: 1_000,
+      observedAtMs: 1_000,
+    },
+    {
+      schemaVersion: "0-1.search-result.v1" as const,
+      id: "fixture",
+      queryId: "q2",
+      queryIntent: "PRIMARY" as const,
+      provider: "mock",
+      title: "Rangers Glasgow vs FK Jablonec preview",
+      url: "https://www.espn.com/soccer/story/example",
+      content: "Rangers Glasgow face FK Jablonec in the Conference League play-off first leg.",
+      score: 0.8,
+      publishedAtMs: 1_000,
+      observedAtMs: 1_000,
+    },
+  ];
+
+  const evidence = normalizeSearchEvidence(rows, 2_000, 10_000, sportsRouting);
+  assert.equal(evidence.length, 1);
+  assert.equal(evidence[0]?.summary, "Rangers Glasgow vs FK Jablonec preview");
+  assert.equal(evidence[0]?.sourceType, "PRIMARY");
+});
+
 test("orchestrator creates advocate and opposition opinions through injected providers", async () => {
   const search: SearchProvider = {
     name: "mock-search",
