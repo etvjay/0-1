@@ -79,6 +79,19 @@ test("sports normalizer rejects ambiguous Rangers baseball results", () => {
       publishedAtMs: 1_000,
       observedAtMs: 1_000,
     },
+    {
+      schemaVersion: "0-1.search-result.v1" as const,
+      id: "texas-base",
+      queryId: "q3",
+      queryIntent: "BASE_RATE" as const,
+      provider: "mock",
+      title: "Texas Rangers recent results",
+      url: "https://www.mlb.com/rangers/results",
+      content: "Texas Rangers recent MLB results and run margins.",
+      score: 0.7,
+      publishedAtMs: 1_000,
+      observedAtMs: 1_000,
+    },
   ];
 
   const evidence = normalizeSearchEvidence(rows, 2_000, 10_000, sportsRouting);
