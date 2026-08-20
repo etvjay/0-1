@@ -12,17 +12,31 @@ const searchSubject = (question: string): string => {
 interface SportsEntities {
   left: string;
   right: string;
+  leftSearch: string;
+  rightSearch: string;
   date: string;
 }
+
+const entitySearch = (value: string): string => {
+  const qualifiers = [...value.matchAll(/\(([^)]+)\)/g)]
+    .map((match) => clean(match[1] ?? ""))
+    .filter(Boolean);
+  const core = clean(value.replace(/\([^)]+\)/g, " "));
+  return clean(`"${core}" ${qualifiers.join(" ")}`);
+};
 
 const sportsEntities = (question: string): SportsEntities | null => {
   const match = question.match(/^\s*will\s+(.+?)\s+beat\s+(.+?)(?=\s+by\s+\d|\s+in\s+regulation|\s+in\s+their|\s+on\s+|\?|$)/i);
   if (!match?.[1] || !match[2]) return null;
 
   const dateMatch = question.match(/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b/i);
+  const leftRaw = clean(match[1]);
+  const rightRaw = clean(match[2]);
   return {
-    left: clean(match[1].replace(/[()]/g, " ")),
-    right: clean(match[2].replace(/[()]/g, " ")),
+    left: clean(leftRaw.replace(/[()]/g, " ")),
+    right: clean(rightRaw.replace(/[()]/g, " ")),
+    leftSearch: entitySearch(leftRaw),
+    rightSearch: entitySearch(rightRaw),
     date: dateMatch?.[0] ?? "",
   };
 };
@@ -63,14 +77,14 @@ export function buildResearchPlan(
   if (classification.domain === "SPORTS") {
     const entities = sportsEntities(resolution.question);
     if (entities) {
-      const fixture = clean(`${entities.left} ${entities.right} ${entities.date}`);
+      const fixture = clean(`${entities.leftSearch} ${entities.rightSearch} ${entities.date}`);
       const queries: ResearchQuery[] = [
-        make("PRIMARY", `${fixture} official fixture score`, officialDomains, 4),
-        make("CORROBORATE", `${fixture} football preview odds lineup injuries`, [], 4),
-        make("CORROBORATE", `${entities.left} football team news injuries lineup`, [], 3),
-        make("OPPOSE", `${entities.right} football team news recent form results`, [], 3),
-        make("BASE_RATE", `${entities.left} football recent results goal margin`, [], 4),
-        make("BASE_RATE", `${entities.right} football recent results goal margin`, [], 4),
+        make("PRIMARY", `${fixture} official fixture score`, officialDomains, 5),
+        make("CORROBORATE", `${fixture} football preview odds lineup injuries`, [], 6),
+        make("CORROBORATE", `${entities.leftSearch} football team news injuries lineup`, [], 5),
+        make("OPPOSE", `${entities.rightSearch} football team news recent form results`, [], 6),
+        make("BASE_RATE", `${entities.leftSearch} football recent results goal margin`, [], 6),
+        make("BASE_RATE", `${entities.rightSearch} football recent results goal margin`, [], 6),
       ];
       return {
         schemaVersion: "0-1.research-plan.v1",
