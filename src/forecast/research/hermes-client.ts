@@ -6,6 +6,22 @@ interface HermesChatPayload {
   }>;
 }
 
+const HERMES_REASONING_EFFORTS = new Set([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+]);
+
+const configuredReasoningEffort = (): string => {
+  const value = (process.env.ZERO_ONE_HERMES_REASONING_EFFORT ?? "low").trim().toLowerCase();
+  return HERMES_REASONING_EFFORTS.has(value) ? value : "low";
+};
+
 export const extractHermesText = (payload: HermesChatPayload): string => {
   const content = payload.choices?.[0]?.message?.content;
   if (typeof content === "string" && content.trim()) return content;
@@ -43,6 +59,9 @@ export class HermesClient {
       },
       body: JSON.stringify({
         model: this.model,
+        model_options: {
+          reasoning_effort: configuredReasoningEffort(),
+        },
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
