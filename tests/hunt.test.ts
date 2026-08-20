@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { forecastSides } from "../src/hunt/evaluate.js";
+import { selectResearchCandidates } from "../src/hunt/orchestrator.js";
 import { rankTriage, triageMarket } from "../src/hunt/triage.js";
 import type { OpportunityForecast } from "../src/hunt/types.js";
 
@@ -53,6 +54,47 @@ test("triage favors near-resolution resolvable binary markets", () => {
 
   assert.ok(near.triageScore > far.triageScore);
   assert.equal(rankTriage([far, near])[0], near);
+});
+
+test("selection reserves budget across distinct archetypes before filling by score", () => {
+  const sportsA = triageMarket({
+    marketId: "0x1111111111111111111111111111111111111111",
+    question: "Will Team A beat Team B?",
+    outcomes: ["Yes", "No"],
+    category: "sports",
+    resolvesAt: new Date(now + 3_600_000).toISOString(),
+    settlesAt: null,
+    dataSources: [],
+    probabilities: [0.5, 0.5],
+    observedAtMs: now,
+  }, now)[0]!;
+  const sportsB = triageMarket({
+    marketId: "0x2222222222222222222222222222222222222222",
+    question: "Will Team C beat Team D?",
+    outcomes: ["Yes", "No"],
+    category: "sports",
+    resolvesAt: new Date(now + 2 * 3_600_000).toISOString(),
+    settlesAt: null,
+    dataSources: [],
+    probabilities: [0.5, 0.5],
+    observedAtMs: now,
+  }, now)[0]!;
+  const crypto = triageMarket({
+    marketId: "0x3333333333333333333333333333333333333333",
+    question: "Will BTC be above $100000 tomorrow?",
+    outcomes: ["Yes", "No"],
+    category: "crypto",
+    resolvesAt: new Date(now + 24 * 3_600_000).toISOString(),
+    settlesAt: null,
+    dataSources: [],
+    probabilities: [0.5, 0.5],
+    observedAtMs: now,
+  }, now)[0]!;
+
+  const selected = selectResearchCandidates([sportsA, sportsB, crypto], 2);
+  assert.equal(selected.length, 2);
+  assert.ok(selected.some((candidate) => candidate.routing.classification.archetype === "SPORTS_EVENT"));
+  assert.ok(selected.some((candidate) => candidate.routing.classification.archetype === "TERMINAL_THRESHOLD"));
 });
 
 test("binary forecast exposes complementary opposite side", () => {
