@@ -2,6 +2,7 @@ import { quoteSizes, tradePolicy } from "../config.js";
 import type { MarketBelief, MarketSnapshot, PortfolioState, TradeProposal } from "../domain/types.js";
 import { evaluateTrade } from "../domain/evaluate.js";
 import { quoteLadder } from "../delphi/quotes.js";
+import { buildAdaptiveQuoteSizes } from "./sizing.js";
 import type { ForecastSide, OpportunityForecast, SideOpportunityEvaluation, TriageCandidate } from "./types.js";
 
 const numberEnv = (name: string, fallback: number): number => {
@@ -10,6 +11,16 @@ const numberEnv = (name: string, fallback: number): number => {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) throw new Error(`${name} must be numeric`);
   return parsed;
+};
+
+const listEnv = (name: string, fallback: number[]): number[] => {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const values = raw
+    .split(",")
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return values.length > 0 ? values : fallback;
 };
 
 export function forecastSides(
@@ -85,8 +96,16 @@ export async function evaluateForecastSide(
     invalidationConditions: [],
   };
   const portfolio: PortfolioState = { accountValue, marketExposure };
-  const ladder = await quoteLadder(side.marketId, side.outcomeIndex, quoteSizes);
   const maxOrderTst = numberEnv("ZERO_ONE_MAX_ORDER_TST", 5);
+  const capitalTargetsTst = listEnv("ZERO_ONE_CAPITAL_TARGETS_TST", [1, 2, 5, 10, 25, 50, 75, 100, 150]);
+  const adaptiveSizes = buildAdaptiveQuoteSizes({
+    seedSizes: quoteSizes,
+    marketProbability: side.marketProbability,
+    maxOrderTst,
+    capitalTargetsTst,
+    maxShares: numberEnv("ZERO_ONE_MAX_QUOTE_SHARES", 1_000),
+  });
+  const ladder = await quoteLadder(side.marketId, side.outcomeIndex, adaptiveSizes);
   const evaluations = ladder.map((quote) => {
     if ("error" in quote) return { status: "QUOTE_FAILED" as const, shares: quote.shares, error: quote.error };
     if (quote.tokensIn > maxOrderTst) {
