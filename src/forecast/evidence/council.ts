@@ -97,10 +97,11 @@ export function evaluateEvidenceCouncil(
     .filter((value): value is NonNullable<typeof value> => value !== null);
 
   if (normalized.length === 0) {
-    const hadOpinions = bundle.opinions.length > 0;
     return refuse(
-      hadOpinions ? "STALE_OPINIONS" : "NO_VALID_OPINIONS",
-      hadOpinions ? "No opinion survived binding, freshness, confidence, and evidence checks." : "Bundle contains no forecast opinions.",
+      "NO_VALID_OPINIONS",
+      bundle.opinions.length > 0
+        ? "No opinion survived binding, freshness, confidence, and evidence checks."
+        : "Bundle contains no forecast opinions.",
       now,
     );
   }
