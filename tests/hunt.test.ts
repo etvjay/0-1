@@ -2,13 +2,29 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { forecastSides } from "../src/hunt/evaluate.js";
 import { rankTriage, triageMarket } from "../src/hunt/triage.js";
-import type { EvidenceCouncilForecast } from "../src/forecast/evidence/types.js";
+import type { OpportunityForecast } from "../src/hunt/types.js";
 
 const marketId = "0x1111111111111111111111111111111111111111" as const;
 const now = Date.UTC(2026, 7, 18, 18, 0, 0);
 const approxEqual = (actual: number, expected: number, epsilon = 1e-12): void => {
   assert.ok(Math.abs(actual - expected) <= epsilon, `expected ${actual} to be within ${epsilon} of ${expected}`);
 };
+
+const makeForecast = (overrides: Partial<OpportunityForecast> = {}): OpportunityForecast => ({
+  source: "EVIDENCE_COUNCIL",
+  marketId,
+  outcomeIndex: 0,
+  probability: 0.7,
+  confidence: 0.8,
+  marketProbability: 0.4,
+  method: "evidence-council-v1",
+  generatedAtMs: now,
+  expiresAtMs: now + 600_000,
+  evidenceIds: ["e1", "e2"],
+  rationale: "test",
+  disagreement: 0.05,
+  ...overrides,
+});
 
 test("triage favors near-resolution resolvable binary markets", () => {
   const near = triageMarket({
@@ -52,31 +68,40 @@ test("binary forecast exposes complementary opposite side", () => {
     observedAtMs: now,
   }, now)[0]!;
 
-  const forecast: EvidenceCouncilForecast = {
-    status: "FORECAST",
-    marketId,
-    outcomeIndex: 0,
-    probability: 0.7,
-    confidence: 0.8,
-    marketProbability: 0.4,
-    method: "evidence-council-v1",
-    generatedAtMs: now,
-    expiresAtMs: now + 600_000,
-    validOpinionIds: ["a", "b"],
-    evidenceIds: ["e1", "e2"],
-    assumptions: [],
-    contradictions: [],
-    disagreement: 0.05,
-    effectiveIndependentSources: 2,
-    rationale: "test",
-  };
-
-  const sides = forecastSides(candidate, forecast, [0.42, 0.58]);
+  const sides = forecastSides(candidate, makeForecast(), [0.42, 0.58]);
   assert.equal(sides.length, 2);
   assert.equal(sides[0]!.probability, 0.7);
   approxEqual(sides[1]!.probability, 0.3);
   assert.equal(sides[1]!.derivedAsComplement, true);
   assert.equal(sides[1]!.marketProbability, 0.58);
+});
+
+test("binary specialist forecast uses its own bound outcome index", () => {
+  const candidate = triageMarket({
+    marketId,
+    question: "Will BTC be above $100,000 tomorrow?",
+    outcomes: ["No", "Yes"],
+    category: "crypto",
+    resolvesAt: new Date(now + 24 * 3_600_000).toISOString(),
+    settlesAt: null,
+    dataSources: [],
+    probabilities: [0.55, 0.45],
+    observedAtMs: now,
+  }, now)[0]!;
+
+  const forecast = makeForecast({
+    source: "CRYPTO_TERMINAL_RV",
+    outcomeIndex: 1,
+    probability: 0.62,
+    marketProbability: 0.45,
+    method: "crypto-terminal-rv-v1",
+    disagreement: 0,
+  });
+  const sides = forecastSides(candidate, forecast, [0.54, 0.46]);
+  assert.equal(sides[0]!.outcomeIndex, 1);
+  assert.equal(sides[0]!.probability, 0.62);
+  assert.equal(sides[1]!.outcomeIndex, 0);
+  approxEqual(sides[1]!.probability, 0.38);
 });
 
 test("multi-outcome forecasts are not assigned invalid complements", () => {
@@ -92,24 +117,5 @@ test("multi-outcome forecasts are not assigned invalid complements", () => {
     observedAtMs: now,
   }, now)[0]!;
 
-  const forecast: EvidenceCouncilForecast = {
-    status: "FORECAST",
-    marketId,
-    outcomeIndex: 0,
-    probability: 0.5,
-    confidence: 0.8,
-    marketProbability: 0.4,
-    method: "evidence-council-v1",
-    generatedAtMs: now,
-    expiresAtMs: now + 600_000,
-    validOpinionIds: ["a", "b"],
-    evidenceIds: ["e1", "e2"],
-    assumptions: [],
-    contradictions: [],
-    disagreement: 0.05,
-    effectiveIndependentSources: 2,
-    rationale: "test",
-  };
-
-  assert.equal(forecastSides(candidate, forecast, [0.4, 0.35, 0.25]).length, 1);
+  assert.equal(forecastSides(candidate, makeForecast({ probability: 0.5 }), [0.4, 0.35, 0.25]).length, 1);
 });
