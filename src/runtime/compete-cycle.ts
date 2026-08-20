@@ -22,6 +22,20 @@ const numberEnv = (name: string, fallback: number): number => {
 
 const liveEnabled = () => (process.env.ZERO_ONE_LIVE_TRADING ?? "false").toLowerCase() === "true";
 
+const terminalPendingFailure = (message: string): boolean => [
+  "Trade refused:",
+  "Market is ",
+  "Market changed to ",
+  "Fresh market probability unavailable",
+  "Market probability drifted ",
+  "Quoted cost ",
+  "Fresh quoted cost ",
+  "Fresh quote would exceed runtime spend headroom",
+  "shares must be positive",
+  "probability must be in [0,1]",
+  "confidence must be in [0,1]",
+].some((prefix) => message.startsWith(prefix));
+
 export interface CompeteCycleResult {
   mode: "LIVE" | "SHADOW";
   actionable: number;
@@ -175,9 +189,11 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
         state.consecutiveFailures = 0;
         await saveRuntimeState(statePath, state);
       } catch (error) {
-        pending.lastError = error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
+        pending.lastError = message;
         state.consecutiveFailures += 1;
         result.failed += 1;
+        if (terminalPendingFailure(message)) delete state.pendingTrades[key];
         await saveRuntimeState(statePath, state);
       }
     }
@@ -212,7 +228,12 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
       const pending = pendingFromResult(item, accountValue, marketExposure);
       if (!pending) continue;
       const key = opportunityKey(pending.marketId, pending.outcomeIndex);
-      if (state.pendingTrades[key]) continue;
+      const existing = state.pendingTrades[key];
+      if (existing) {
+        if (existing.beliefCreatedAtMs >= pending.beliefCreatedAtMs) continue;
+        state.pendingTrades[key] = pending;
+        await saveRuntimeState(statePath, state);
+      }
       if (recentlyTraded(state, pending.marketId, pending.outcomeIndex, cooldownMs)) {
         result.skippedCooldown += 1;
         continue;
@@ -221,7 +242,7 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
       const remainingBudgetTst = cycleBudgetTst - result.spentEstimateTst;
       if (estimatedCost <= 0 || remainingBudgetTst <= 0 || estimatedCost > remainingBudgetTst) continue;
 
-      state.pendingTrades[key] = pending;
+      if (!existing) state.pendingTrades[key] = pending;
       result.enqueued += 1;
       await saveRuntimeState(statePath, state);
 
@@ -239,9 +260,11 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
         state.consecutiveFailures = 0;
         await saveRuntimeState(statePath, state);
       } catch (error) {
-        pending.lastError = error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
+        pending.lastError = message;
         state.consecutiveFailures += 1;
         result.failed += 1;
+        if (terminalPendingFailure(message)) delete state.pendingTrades[key];
         await saveRuntimeState(statePath, state);
       }
     }
