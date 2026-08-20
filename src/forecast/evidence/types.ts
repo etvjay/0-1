@@ -42,6 +42,7 @@ export type EvidenceCouncilRefusalCode =
   | "NO_VALID_OPINIONS"
   | "STALE_OPINIONS"
   | "MISSING_EVIDENCE"
+  | "MISSING_ROLES"
   | "EXCESSIVE_DISAGREEMENT"
   | "AMBIGUOUS_RESOLUTION";
 
@@ -78,6 +79,7 @@ export interface EvidenceCouncilPolicy {
   maxOpinionAgeMs: number;
   maxDisagreement: number;
   minIndependentSources: number;
+  requiredOpinionRoles: OpinionRole[];
   maxResolutionAmbiguities: number;
   marketPriorWeight: number;
   opposeWeightMultiplier: number;
