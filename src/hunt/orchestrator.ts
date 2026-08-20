@@ -161,6 +161,8 @@ export async function huntOpportunities(
   const results: HuntCandidateResult[] = [];
 
   const processCandidate = async (candidate: TriageCandidate): Promise<HuntCandidateResult> => {
+    const specialistFailures: NonNullable<HuntCandidateResult["specialistFailures"]> = [];
+
     try {
       let forecast: OpportunityForecast | null = null;
       let council: HuntCandidateResult["council"] = null;
@@ -181,7 +183,11 @@ export async function huntOpportunities(
           });
           forecast = cryptoForecast(candidate, specialist);
           await appendJsonl(forecastLog, specialist.record);
-        } catch {
+        } catch (error) {
+          specialistFailures.push({
+            specialist: "crypto-terminal-rv-v1",
+            reason: error instanceof Error ? error.message : String(error),
+          });
           // Unsupported or unavailable specialist data falls through to the
           // general evidence path; it never forces a forecast or a trade.
         }
@@ -199,7 +205,7 @@ export async function huntOpportunities(
         );
         council = evaluateEvidenceCouncil(research.bundle, defaultEvidenceCouncilPolicy);
         researchPacketPath = `${packetDir}/${candidate.marketId}-${candidate.outcomeIndex}-${research.packet.generatedAtMs}.json`;
-        await writeJsonAtomic(researchPacketPath, { candidate, packet: research.packet, bundle: research.bundle, council });
+        await writeJsonAtomic(researchPacketPath, { candidate, packet: research.packet, bundle: research.bundle, council, specialistFailures });
 
         if (council.status !== "FORECAST") {
           return {
@@ -213,6 +219,7 @@ export async function huntOpportunities(
             bestSide: null,
             reason: council.reason,
             researchPacketPath,
+            specialistFailures,
           };
         }
 
@@ -250,6 +257,7 @@ export async function huntOpportunities(
           bestSide: null,
           reason: "Fresh Delphi probability unavailable after forecasting.",
           researchPacketPath,
+          specialistFailures,
         };
       }
 
@@ -266,6 +274,7 @@ export async function huntOpportunities(
           bestSide: null,
           reason: `Market prior moved ${drift.toFixed(4)} during forecasting, above ${maxPriorDrift.toFixed(4)}.`,
           researchPacketPath,
+          specialistFailures,
         };
       }
 
@@ -291,6 +300,7 @@ export async function huntOpportunities(
           ? `At least one ${forecast.source} side survived quote-aware policy gates.`
           : `No ${forecast.source} quote size survived execution-edge and risk policy.`,
         researchPacketPath,
+        specialistFailures,
       };
     } catch (error) {
       return {
@@ -304,6 +314,7 @@ export async function huntOpportunities(
         bestSide: null,
         reason: error instanceof Error ? error.message : String(error),
         researchPacketPath: null,
+        specialistFailures,
       };
     }
   };
