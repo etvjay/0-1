@@ -84,7 +84,7 @@ const evidenceRank = (item: EvidenceItem): number => {
   return item.reliability + sourceBonus;
 };
 
-const selectEvidence = (items: EvidenceItem[], maxItems = 8): EvidenceItem[] => {
+const selectEvidence = (items: EvidenceItem[], maxItems: number): EvidenceItem[] => {
   const ranked = [...items].sort((a, b) => evidenceRank(b) - evidenceRank(a));
   const selected: EvidenceItem[] = [];
   const selectedIds = new Set<string>();
@@ -108,70 +108,59 @@ const selectEvidence = (items: EvidenceItem[], maxItems = 8): EvidenceItem[] => 
   return selected;
 };
 
-const compactValue = (value: unknown): unknown => {
+const compactValue = (value: unknown, contentLimit: number): unknown => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const record = value as UnknownRecord;
   return {
-    title: typeof record.title === "string" ? record.title.slice(0, 240) : undefined,
-    content: typeof record.content === "string" ? record.content.slice(0, 900) : undefined,
+    title: typeof record.title === "string" ? record.title.slice(0, 200) : undefined,
+    content: typeof record.content === "string" ? record.content.slice(0, contentLimit) : undefined,
     queryIntent: typeof record.queryIntent === "string" ? record.queryIntent : undefined,
     provider: typeof record.provider === "string" ? record.provider : undefined,
   };
 };
 
 export class HermesOpinionProvider implements OpinionProvider {
-  readonly name = "hermes-opinion-v4";
+  readonly name = "hermes-opinion-v5";
   private readonly client = new HermesClient();
 
-  async forecast(request: OpinionRequest): Promise<ForecastOpinion> {
+  private async attempt(request: OpinionRequest, maxEvidence: number, contentLimit: number, timeoutMs: number): Promise<ForecastOpinion> {
     const roleInstruction = request.role === "OPPOSE"
-      ? "Build the strongest evidence-bounded case AGAINST the selected outcome. Do not manufacture contradictions."
-      : "Estimate the selected outcome from the evidence while preserving uncertainty.";
+      ? "Estimate the selected outcome while emphasizing the strongest supplied evidence AGAINST it. Do not manufacture contradictions."
+      : "Estimate the selected outcome while emphasizing the strongest supplied evidence FOR it. Preserve uncertainty.";
 
-    const evidence = selectEvidence(request.evidence);
+    const evidence = selectEvidence(request.evidence, maxEvidence);
     const allowedEvidence = new Set(evidence.map((item) => item.id));
 
     const system = [
       "You are 0-1's bounded prediction-market forecaster.",
       roleInstruction,
-      "This is an evidence-only reasoning step and no external lookup is permitted.",
-      "Use only the supplied evidence; do not execute trades or make capital decisions.",
-      "Return one JSON object and nothing else.",
-      "Required keys: probability, confidence, evidence_ids, assumptions, rationale.",
-      "probability and confidence must be numbers in [0,1].",
-      "evidence_ids must contain only supplied evidence IDs and at least one ID.",
-      "assumptions should be an array of short strings; use [] when none are needed.",
+      "Use only supplied evidence. No external lookup. No trade or capital decision.",
+      "Return one JSON object only with keys probability, confidence, evidence_ids, assumptions, rationale.",
+      "probability/confidence: numbers in [0,1]. evidence_ids: at least one supplied ID. assumptions: short string array or [].",
     ].join(" ");
 
     const user = JSON.stringify({
       question: request.routing.resolution.question,
-      outcomes: request.routing.resolution.outcomes,
-      selectedOutcomeIndex: request.outcomeIndex,
       selectedOutcome: request.outcomeLabel,
       marketProbability: request.marketProbability,
       closesAtMs: request.routing.resolution.closesAtMs,
       resolvesAtMs: request.routing.resolution.resolvesAtMs,
-      acceptableDataSources: request.routing.resolution.acceptableDataSources,
       ambiguities: request.routing.resolution.ambiguities,
       invalidationConditions: request.routing.resolution.invalidationConditions,
-      classification: {
-        domain: request.routing.classification.domain,
-        archetype: request.routing.classification.archetype,
-        specialists: request.routing.classification.specialists,
-      },
+      domain: request.routing.classification.domain,
+      archetype: request.routing.classification.archetype,
       evidence: evidence.map((item) => ({
         id: item.id,
         source: item.source,
         sourceType: item.sourceType,
         reliability: item.reliability,
         independenceGroup: item.independenceGroup,
-        observedAtMs: item.observedAtMs,
-        summary: item.summary.slice(0, 320),
-        value: compactValue(item.value),
+        summary: item.summary.slice(0, 240),
+        value: compactValue(item.value, contentLimit),
       })),
     });
 
-    const raw = await this.client.chat(system, user);
+    const raw = await this.client.chat(system, user, timeoutMs);
     const parsed = validate(
       normalizeStructuredOpinion(parseHermesJson<unknown>(raw)),
       allowedEvidence,
@@ -198,5 +187,19 @@ export class HermesOpinionProvider implements OpinionProvider {
     };
 
     return { id: sha256Json(base), ...base };
+  }
+
+  async forecast(request: OpinionRequest): Promise<ForecastOpinion> {
+    try {
+      return await this.attempt(request, 6, 600, 75_000);
+    } catch (firstError) {
+      try {
+        return await this.attempt(request, 4, 320, 45_000);
+      } catch (retryError) {
+        const first = firstError instanceof Error ? firstError.message : String(firstError);
+        const retry = retryError instanceof Error ? retryError.message : String(retryError);
+        throw new Error(`Hermes opinion failed after compact retry: first=${first}; retry=${retry}`);
+      }
+    }
   }
 }
