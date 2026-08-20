@@ -142,6 +142,7 @@ export async function huntOpportunities(
     marketExposureByMarket?: Record<string, number>;
     packetDir?: string;
     forecastLog?: string;
+    concurrency?: number;
   } = {},
 ): Promise<HuntReport> {
   const marketLimit = options.marketLimit ?? 100;
@@ -152,12 +153,14 @@ export async function huntOpportunities(
   const marketExposureByMarket = options.marketExposureByMarket ?? {};
   const packetDir = options.packetDir ?? "data/hunt/research";
   const forecastLog = options.forecastLog ?? process.env.ZERO_ONE_FORECAST_LOG ?? "data/forecasts.jsonl";
+  const rawConcurrency = options.concurrency ?? Number(process.env.ZERO_ONE_HUNT_CONCURRENCY ?? 2);
+  const concurrency = Number.isFinite(rawConcurrency) ? Math.max(1, Math.floor(rawConcurrency)) : 2;
 
   const universe = await buildTriageUniverse(marketLimit);
   const selected = selectResearchCandidates(universe.candidates, researchBudget);
   const results: HuntCandidateResult[] = [];
 
-  for (const candidate of selected) {
+  const processCandidate = async (candidate: TriageCandidate): Promise<HuntCandidateResult> => {
     try {
       let forecast: OpportunityForecast | null = null;
       let council: HuntCandidateResult["council"] = null;
@@ -199,7 +202,7 @@ export async function huntOpportunities(
         await writeJsonAtomic(researchPacketPath, { candidate, packet: research.packet, bundle: research.bundle, council });
 
         if (council.status !== "FORECAST") {
-          results.push({
+          return {
             candidate,
             status: "RESEARCH_REFUSED",
             forecast: null,
@@ -210,8 +213,7 @@ export async function huntOpportunities(
             bestSide: null,
             reason: council.reason,
             researchPacketPath,
-          });
-          continue;
+          };
         }
 
         forecast = councilForecast(council);
@@ -237,7 +239,7 @@ export async function huntOpportunities(
       const refreshedProbabilities = refreshed.spotImpliedProbabilities ?? [];
       const refreshedPrior = refreshedProbabilities[forecast.outcomeIndex];
       if (typeof refreshedPrior !== "number" || !Number.isFinite(refreshedPrior)) {
-        results.push({
+        return {
           candidate,
           status: "PRIOR_DRIFT",
           forecast,
@@ -248,13 +250,12 @@ export async function huntOpportunities(
           bestSide: null,
           reason: "Fresh Delphi probability unavailable after forecasting.",
           researchPacketPath,
-        });
-        continue;
+        };
       }
 
       const drift = priorDrift(forecast.marketProbability, refreshedPrior);
       if (drift > maxPriorDrift) {
-        results.push({
+        return {
           candidate,
           status: "PRIOR_DRIFT",
           forecast,
@@ -265,21 +266,19 @@ export async function huntOpportunities(
           bestSide: null,
           reason: `Market prior moved ${drift.toFixed(4)} during forecasting, above ${maxPriorDrift.toFixed(4)}.`,
           researchPacketPath,
-        });
-        continue;
+        };
       }
 
       const marketExposure = marketExposureByMarket[candidate.marketId] ?? defaultMarketExposure;
       const sideSpecs = forecastSides(candidate, forecast, refreshedProbabilities);
-      const sides = [];
-      for (const side of sideSpecs) {
-        sides.push(await evaluateForecastSide(side, forecast, accountValue, marketExposure));
-      }
+      const sides = await Promise.all(
+        sideSpecs.map((side) => evaluateForecastSide(side, forecast, accountValue, marketExposure)),
+      );
       const bestSide = [...sides]
         .filter((side) => side.bestProposal !== null)
         .sort((a, b) => b.opportunityScore - a.opportunityScore)[0] ?? null;
 
-      results.push({
+      return {
         candidate,
         status: bestSide ? "ACTIONABLE" : "NO_EXECUTABLE_EDGE",
         forecast,
@@ -292,9 +291,9 @@ export async function huntOpportunities(
           ? `At least one ${forecast.source} side survived quote-aware policy gates.`
           : `No ${forecast.source} quote size survived execution-edge and risk policy.`,
         researchPacketPath,
-      });
+      };
     } catch (error) {
-      results.push({
+      return {
         candidate,
         status: "RESEARCH_FAILED",
         forecast: null,
@@ -305,9 +304,20 @@ export async function huntOpportunities(
         bestSide: null,
         reason: error instanceof Error ? error.message : String(error),
         researchPacketPath: null,
-      });
+      };
     }
-  }
+  };
+
+  const queue = [...selected];
+  const workerCount = Math.min(concurrency, queue.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    for (;;) {
+      const candidate = queue.shift();
+      if (!candidate) return;
+      results.push(await processCandidate(candidate));
+    }
+  });
+  await Promise.all(workers);
 
   results.sort((a, b) =>
     (b.bestSide?.opportunityScore ?? 0) - (a.bestSide?.opportunityScore ?? 0) ||
