@@ -44,21 +44,21 @@ export interface CompeteCycleResult {
 
 const pendingFromResult = (result: any, accountValue: number, marketExposure: number): PendingTradeState | null => {
   const proposal = result.bestSide?.bestProposal;
-  const council = result.council;
-  if (!proposal || !council || council.status !== "FORECAST") return null;
+  const forecast = result.forecast;
+  if (!proposal || !forecast) return null;
   const key = opportunityKey(proposal.marketId, proposal.outcomeIndex);
   return {
-    id: sha256Json({ key, generatedAtMs: council.generatedAtMs, shares: proposal.shares, probability: proposal.ourProbability }),
+    id: sha256Json({ key, generatedAtMs: forecast.generatedAtMs, shares: proposal.shares, probability: proposal.ourProbability }),
     marketId: proposal.marketId,
     outcomeIndex: proposal.outcomeIndex,
     shares: proposal.shares,
     probability: proposal.ourProbability,
-    confidence: council.confidence,
+    confidence: forecast.confidence,
     accountValue,
     marketExposure,
-    beliefCreatedAtMs: council.generatedAtMs,
-    beliefExpiresAtMs: council.expiresAtMs,
-    method: council.method,
+    beliefCreatedAtMs: forecast.generatedAtMs,
+    beliefExpiresAtMs: forecast.expiresAtMs,
+    method: forecast.method,
     createdAtMs: Date.now(),
     attempts: 0,
     lastAttemptAtMs: null,
@@ -117,7 +117,6 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
     marketExposureByMarket = portfolio.marketExposureTst;
   } catch (error) {
     if (live) throw error;
-    // Shadow mode may run without a configured signer; keep explicit fallback values.
   }
 
   const cycleBudgetTst = Math.min(numberEnv("ZERO_ONE_MAX_CYCLE_TST", 20), Math.max(0, collateralBalanceTst));
@@ -164,6 +163,7 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
         result.spentEstimateTst += receipt.quotedCost;
         result.transactions.push(receipt.transactionHash);
         recordTrade(state, pending.marketId, pending.outcomeIndex, receipt.transactionHash, receipt.submittedAtMs);
+        delete state.pendingTrades[key];
         state.consecutiveFailures = 0;
         await saveRuntimeState(statePath, state);
       } catch (error) {
@@ -226,6 +226,7 @@ export async function runCompeteCycle(): Promise<CompeteCycleResult> {
         result.spentEstimateTst += receipt.quotedCost;
         result.transactions.push(receipt.transactionHash);
         recordTrade(state, pending.marketId, pending.outcomeIndex, receipt.transactionHash, receipt.submittedAtMs);
+        delete state.pendingTrades[key];
         state.consecutiveFailures = 0;
         await saveRuntimeState(statePath, state);
       } catch (error) {
