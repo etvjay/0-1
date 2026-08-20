@@ -55,6 +55,19 @@ const quotedPhrases = (query: string): string[] => [...query.matchAll(/"([^"]+)"
   .map((match) => normalizeText(match[1] ?? ""))
   .filter(Boolean);
 
+const quotedAnchorGroups = (query: string): string[][] => quotedPhrases(query)
+  .map((phrase) => phrase
+    .split(" ")
+    .filter((token) => token.length >= 3 && !SEARCH_STOPWORDS.has(token)))
+  .filter((tokens) => tokens.length > 0);
+
+export const matchesQuotedAnchors = (title: string, content: string, query: string): boolean => {
+  const groups = quotedAnchorGroups(query);
+  if (groups.length === 0) return true;
+  const text = ` ${normalizeText(`${title} ${content}`)} `;
+  return groups.every((tokens) => tokens.every((token) => text.includes(` ${token} `)));
+};
+
 const relevanceScore = (item: SearxngItem, query: ResearchQuery): number => {
   const title = typeof item.title === "string" ? item.title : "";
   const content = typeof item.content === "string" ? item.content : "";
@@ -120,7 +133,7 @@ export const extractPageText = (html: string, maxChars = 12_000): string => {
 };
 
 export class SearxngSearchProvider implements SearchProvider {
-  readonly name = "searxng-local-v5";
+  readonly name = "searxng-local-v6";
 
   constructor(
     private readonly baseUrl = process.env.SEARXNG_URL ?? "http://127.0.0.1:8888",
@@ -167,6 +180,8 @@ export class SearxngSearchProvider implements SearchProvider {
       if (!matchesDomain(url, query.includeDomains)) continue;
       if (!raw.title.trim()) continue;
 
+      const snippet = typeof raw.content === "string" ? raw.content : "";
+      if (!matchesQuotedAnchors(raw.title, snippet, query.query)) continue;
       candidates.push({ raw, url, rank: relevanceScore(raw, query) });
     }
 
