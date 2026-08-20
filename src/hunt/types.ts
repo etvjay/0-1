@@ -55,6 +55,11 @@ export interface OpportunityForecast {
   disagreement: number;
 }
 
+export interface SpecialistFailure {
+  specialist: string;
+  reason: string;
+}
+
 export interface ForecastSide {
   marketId: HexAddress;
   outcomeIndex: number;
@@ -89,6 +94,7 @@ export interface HuntCandidateResult {
   bestSide: SideOpportunityEvaluation | null;
   reason: string;
   researchPacketPath: string | null;
+  specialistFailures?: SpecialistFailure[];
 }
 
 export interface HuntReport {
