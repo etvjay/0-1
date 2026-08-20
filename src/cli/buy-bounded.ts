@@ -1,10 +1,32 @@
 import { executeBoundedBuy } from "../execution/live-buy.js";
 
-const [marketArg, outcomeArg, sharesArg, probabilityArg, confidenceArg, accountValueArg, exposureArg] = process.argv.slice(2);
+const [
+  marketArg,
+  outcomeArg,
+  sharesArg,
+  probabilityArg,
+  confidenceArg,
+  accountValueArg,
+  exposureArg,
+  beliefCreatedAtArg,
+  beliefExpiresAtArg,
+  methodArg,
+] = process.argv.slice(2);
+
 if (!marketArg || outcomeArg === undefined || sharesArg === undefined || probabilityArg === undefined || confidenceArg === undefined) {
-  console.error("Usage: npm run buy:bounded -- <market> <outcome-index> <shares> <our-probability> <confidence> [account-value] [market-exposure]");
+  console.error(
+    "Usage: npm run buy:bounded -- <market> <outcome-index> <shares> <our-probability> <confidence> " +
+    "[account-value] [market-exposure] [belief-created-at-ms] [belief-expires-at-ms] [method]",
+  );
   process.exit(1);
 }
+
+const optionalNumber = (value: string | undefined): number | undefined => {
+  if (value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`Expected finite numeric argument, got ${value}`);
+  return parsed;
+};
 
 const receipt = await executeBoundedBuy({
   marketId: marketArg.toLowerCase() as `0x${string}`,
@@ -14,7 +36,9 @@ const receipt = await executeBoundedBuy({
   confidence: Number(confidenceArg),
   accountValue: Number(accountValueArg ?? 100),
   marketExposure: Number(exposureArg ?? 0),
-  method: "manual-bounded-buy-v1",
+  beliefCreatedAtMs: optionalNumber(beliefCreatedAtArg),
+  beliefExpiresAtMs: optionalNumber(beliefExpiresAtArg),
+  method: methodArg ?? "manual-bounded-buy-v2",
 });
 
 console.log(JSON.stringify(receipt, null, 2));
