@@ -28,6 +28,9 @@ const optionalNumber = (value: string | undefined): number | undefined => {
   return parsed;
 };
 
+const beliefCreatedAtMs = optionalNumber(beliefCreatedAtArg);
+const beliefExpiresAtMs = optionalNumber(beliefExpiresAtArg);
+
 const receipt = await executeBoundedBuy({
   marketId: marketArg.toLowerCase() as `0x${string}`,
   outcomeIndex: Number(outcomeArg),
@@ -36,8 +39,8 @@ const receipt = await executeBoundedBuy({
   confidence: Number(confidenceArg),
   accountValue: Number(accountValueArg ?? 100),
   marketExposure: Number(exposureArg ?? 0),
-  beliefCreatedAtMs: optionalNumber(beliefCreatedAtArg),
-  beliefExpiresAtMs: optionalNumber(beliefExpiresAtArg),
+  ...(beliefCreatedAtMs !== undefined ? { beliefCreatedAtMs } : {}),
+  ...(beliefExpiresAtMs !== undefined ? { beliefExpiresAtMs } : {}),
   method: methodArg ?? "manual-bounded-buy-v2",
 });
 
