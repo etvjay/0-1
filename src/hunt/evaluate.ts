@@ -2,31 +2,30 @@ import { quoteSizes, tradePolicy } from "../config.js";
 import type { MarketBelief, MarketSnapshot, PortfolioState, TradeProposal } from "../domain/types.js";
 import { evaluateTrade } from "../domain/evaluate.js";
 import { quoteLadder } from "../delphi/quotes.js";
-import type { EvidenceCouncilForecast } from "../forecast/evidence/types.js";
-import type { ForecastSide, SideOpportunityEvaluation, TriageCandidate } from "./types.js";
+import type { ForecastSide, OpportunityForecast, SideOpportunityEvaluation, TriageCandidate } from "./types.js";
 
 export function forecastSides(
   candidate: TriageCandidate,
-  forecast: EvidenceCouncilForecast,
+  forecast: OpportunityForecast,
   refreshedProbabilities: number[],
 ): ForecastSide[] {
-  const refreshedPrimary = refreshedProbabilities[candidate.outcomeIndex];
+  const refreshedPrimary = refreshedProbabilities[forecast.outcomeIndex];
   const primaryMarketProbability =
     typeof refreshedPrimary === "number" && Number.isFinite(refreshedPrimary)
       ? refreshedPrimary
-      : candidate.marketProbability;
+      : forecast.marketProbability;
 
   const primary: ForecastSide = {
     marketId: candidate.marketId,
-    outcomeIndex: candidate.outcomeIndex,
-    outcome: candidate.outcomes[candidate.outcomeIndex] ?? `#${candidate.outcomeIndex}`,
+    outcomeIndex: forecast.outcomeIndex,
+    outcome: candidate.outcomes[forecast.outcomeIndex] ?? `#${forecast.outcomeIndex}`,
     probability: forecast.probability,
     marketProbability: primaryMarketProbability,
     derivedAsComplement: false,
   };
 
   if (candidate.outcomes.length !== 2) return [primary];
-  const oppositeIndex = candidate.outcomeIndex === 0 ? 1 : 0;
+  const oppositeIndex = forecast.outcomeIndex === 0 ? 1 : 0;
   const oppositeMarketP = refreshedProbabilities[oppositeIndex];
   if (typeof oppositeMarketP !== "number" || !Number.isFinite(oppositeMarketP)) return [primary];
 
@@ -45,7 +44,7 @@ export function forecastSides(
 
 export async function evaluateForecastSide(
   side: ForecastSide,
-  forecast: EvidenceCouncilForecast,
+  forecast: OpportunityForecast,
   accountValue: number,
   marketExposure: number,
 ): Promise<SideOpportunityEvaluation> {
@@ -70,7 +69,7 @@ export async function evaluateForecastSide(
     rationale: forecast.rationale,
     evidence: forecast.evidenceIds.map((id) => ({
       id,
-      source: "evidence-council",
+      source: forecast.source.toLowerCase(),
       observedAt: forecast.generatedAtMs,
       freshnessMs: Math.max(0, forecast.expiresAtMs - forecast.generatedAtMs),
       support: "CONTEXT" as const,
